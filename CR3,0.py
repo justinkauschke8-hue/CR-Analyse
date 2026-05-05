@@ -251,6 +251,11 @@ def get_session_leaderboard(session_df):
             "Spieler": p[:10], "Matches": data["P"], "Wins": data["W"], "Losses": data["L"], 
             "WR": f"{wr*100:.0f}%", "Max Streaks": f"+{data['max_w_streak']} / -{data['max_l_streak']}", "Rating (KotH)": round(final_rating, 1)
         })
+        
+    # --- HIER IST DER SICHERHEITS-CHECK ---
+    if not leaderboard:
+        return pd.DataFrame()
+        
     df_lb = pd.DataFrame(leaderboard).sort_values(by="Rating (KotH)", ascending=False).reset_index(drop=True)
     df_lb.index = df_lb.index + 1
     return df_lb
