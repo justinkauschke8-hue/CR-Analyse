@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import requests
 import itertools
 from datetime import datetime, timedelta
 import plotly.express as px
@@ -22,9 +21,7 @@ TAGS = {
 }
 
 # WICHTIG: Füge hier den echten Link aus der Browser-Leiste ein (https://docs...)
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1SZQhK7TeBRI6DspxVJWU31ul_PGTXNOoxcOwE6rn2u8/edit?gid=67403884#gid=67403884"
-
-API_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjhjMzk2MDM1LTgyMzMtNGFhMi04YzVjLTg3NjVmZDliYjE0MSIsImlhdCI6MTc3Nzk4NDU2Niwic3ViIjoiZGV2ZWxvcGVyL2MyYjczNjYyLWE2YjYtNzdkMC00N2I4LTM5YjE0MWYyNzcxOCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyI5Mi4yMDguMjUuMTIiXSwidHlwZSI6ImNsaWVudCJ9XX0.LG_Q_jELSrMoeRPVVU5saPFnNWBrGbzaaaXtl_4HvKEMd-jDBBldJUpLZXQJ2101_tGsxgQ-3bU5tejtmY3wQg"
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1SZQhK7TeBRI6DspxVJWU31ul_PGTXNOoxcOwE6rn2u8/edit?gid=641247476#gid=641247476"
 
 # --- GOOGLE SHEETS SETUP ---
 @st.cache_resource
@@ -34,10 +31,15 @@ def init_google_sheets():
     creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     client = gspread.authorize(creds)
     sheet = client.open_by_url(SHEET_URL)
-    return sheet.worksheet("Karten_Data"), sheet.worksheet("Fun_Data"), sheet.worksheet("Profile_Data")
+    return (
+        sheet.worksheet("Karten_Data"), 
+        sheet.worksheet("Fun_Data"), 
+        sheet.worksheet("Profile_Data"),
+        sheet.worksheet("Global_Data") # NEU
+    )
 
 try:
-    ws_comp, ws_fun, ws_prof = init_google_sheets()
+    ws_comp, ws_fun, ws_prof, ws_global = init_google_sheets()
 except Exception as e:
     st.error(f"Datenbank-Verbindung fehlgeschlagen: {e}")
     st.stop()
@@ -126,16 +128,6 @@ def calc_nemesis_kryptonit(df):
             n_wr = (nemesis[1][1]/nemesis[1][0]*100) if nemesis[1][0]>0 else 0
             nemesis_data.append({"Spieler": p[:10], "Nemesis": f"{nemesis[0]} ({n_wr:.0f}%)", "Kryptonit-Karte": f"{krypt[0]} ({krypt[1]}x verloren)"})
     return pd.DataFrame(nemesis_data)
-
-# --- API FETCH (GLOBAL DATA) ---
-@st.cache_data(ttl=60)
-def get_api_data(endpoint, tag):
-    url = f"https://api.clashroyale.com/v1/players/%23{tag}/{endpoint}" if endpoint else f"https://api.clashroyale.com/v1/players/%23{tag}"
-    headers = {"Authorization": f"Bearer {API_KEY}"}
-    try:
-        res = requests.get(url, headers=headers, timeout=5)
-        return res.json() if res.status_code == 200 else None
-    except: return None
 
 # --- ALGORITHMUS FÜR BUCHMACHER QUOTEN ---
 def get_player_form_and_streak(player, df):
@@ -364,6 +356,7 @@ if 'mc_results' not in st.session_state:
 df_comp = get_df_from_sheet(ws_comp)
 df_fun = get_df_from_sheet(ws_fun)
 df_prof = get_df_from_sheet(ws_prof)
+df_global = get_df_from_sheet(ws_global) # Lade das globale Archiv
 
 latest_match_str = "Keine Daten"
 if not df_comp.empty:
@@ -373,11 +366,11 @@ if not df_comp.empty:
 st.sidebar.title("Clash Analyzer Pro")
 st.sidebar.markdown("---")
 st.sidebar.write("**System-Status**")
-st.sidebar.write(f"Datensätze: {len(df_comp)}")
+st.sidebar.write(f"Datensätze (Lokal): {len(df_comp)}")
+st.sidebar.write(f"Datensätze (Global): {len(df_global)}")
 st.sidebar.write(f"Letztes Match: {latest_match_str}")
 st.sidebar.markdown("---")
 
-# NEUER TAB EINGEFÜGT: "Spieler-Details"
 tab_dbl, tab_spieler, tab_spieler_details, tab_dbf, tab_nemesis, tab_trends, tab_zeit, tab_sessions, tab_prognose, tab_analyse, tab_mc, tab_dna = st.tabs([
     "1v1", "Spieler", "Spieler-Details", "Fun", "Nemesis", "Trends", "Heatmap", "Sessions", "Prognose", "Analyse", "Monte Carlo", "Profil-DNA"
 ])
@@ -405,6 +398,18 @@ with tab_dbl:
         col1.metric("Aktuelle Winstreak", f"{curr_streak['count']}x", curr_streak['player'])
         col2.metric("All-Time Rekord", f"{at_streak['count']}x", at_streak['player'])
         st.dataframe(h2h_df, use_container_width=True, hide_index=True)
+        
+        st.markdown("---")
+        if lb_data:
+            c1, c2 = st.columns(2)
+            with c1:
+                fig_race = px.bar(df_lb, x='Spieler', y='Siege', text_auto=True, color='Spieler', title="Race to 200 (Absolute Siege)")
+                fig_race.update_layout(yaxis=dict(range=[0, 200]), showlegend=False, margin=dict(t=40, b=0, l=0, r=0))
+                st.plotly_chart(fig_race, use_container_width=True)
+            with c2:
+                fig_wr = px.bar(df_lb, x='Spieler', y='Winrate (%)', text_auto='.1f', color='Spieler', title="Winrate Histogramm")
+                fig_wr.update_layout(yaxis=dict(range=[0, 100]), showlegend=False, margin=dict(t=40, b=0, l=0, r=0))
+                st.plotly_chart(fig_wr, use_container_width=True)
 
 with tab_spieler:
     st.header("Spieler Profile (Übersicht)")
@@ -421,7 +426,6 @@ with tab_spieler:
                 st.write(f"**Global WR:** {wr_global:.1f}%")
             
             st.markdown("---")
-            
             p_df = df_comp[(df_comp['Spieler1'] == name) | (df_comp['Spieler2'] == name)].sort_values('ID')
             if not p_df.empty:
                 st.markdown("**Letzte 5 Spiele (Lokal)**")
@@ -431,12 +435,9 @@ with tab_spieler:
                     opp = r['Spieler2'] if is_p1 else r['Spieler1']
                     s_me = r['Score1'] if is_p1 else r['Score2']
                     s_opp = r['Score2'] if is_p1 else r['Score1']
-                    if s_me > s_opp:
-                        res_col, res_text = "#4CAF50", "W"
-                    elif s_me < s_opp:
-                        res_col, res_text = "#F44336", "L"
-                    else:
-                        res_col, res_text = "#888888", "D"
+                    if s_me > s_opp: res_col, res_text = "#4CAF50", "W"
+                    elif s_me < s_opp: res_col, res_text = "#F44336", "L"
+                    else: res_col, res_text = "#888888", "D"
                     history_html += f"<div style='margin-bottom: 4px;'><span style='color: {res_col}; font-weight: bold; width: 20px; display: inline-block;'>{res_text}</span> vs {opp} ({s_me}:{s_opp})</div>"
                 history_html += "</div>"
                 st.markdown(history_html, unsafe_allow_html=True)
@@ -447,197 +448,173 @@ with tab_spieler:
                 st.markdown("**Meistgespielte Karten:**")
                 st.dataframe(top_u, hide_index=True, use_container_width=True)
 
-# --- NEUER TAB: SPIELER DETAILS (DEEP DIVE) ---
 with tab_spieler_details:
     st.header("Individuelle Spieler-Analyse")
-    st.markdown("Tiefgehende Analyse basierend auf dem globalen Live-Kampflog (Letzte 25 Matches).")
+    st.markdown("Tiefgehende Analyse basierend auf dem globalen Langzeit-Archiv (Global_Data).")
     
     selected_p = st.selectbox("Spieler auswählen:", list(TAGS.keys()), key="detail_player")
-    p_tag = TAGS[selected_p]
     
-    with st.spinner(f"Lade Live-Daten für {selected_p}..."):
-        blog = get_api_data("battlelog", p_tag)
-        
-    if not blog:
-        st.warning("Konnte das Kampflog nicht abrufen. Bitte API oder Internetverbindung prüfen.")
+    if df_global.empty:
+        st.warning("Keine Daten in Global_Data gefunden. Lass den Bot erst laufen!")
     else:
-        # Variablen für die 7 KPIs
-        b_games, b_wins, b_losses = 0, 0, 0
-        crowns_for, crowns_against = 0, 0
-        clean_sheets, clutch_games, clutch_wins, three_crown_wins = 0, 0, 0, 0
-        unique_cards = set()
+        # Filtere Global Data nach dem ausgewählten Spieler
+        p_global = df_global[df_global['Spieler'] == selected_p].sort_values('Time_ID')
         
-        last_5_html = "<div style='background-color: #121212; border-radius: 6px; border: 1px solid #333; padding: 0 15px; font-family: sans-serif;'>"
-        
-        for i, b in enumerate(blog):
-            if 'team' not in b or 'opponent' not in b: continue
-            my_cr = b['team'][0].get('crowns', 0)
-            op_cr = b['opponent'][0].get('crowns', 0)
+        if p_global.empty:
+            st.info(f"Keine globalen Spiele für {selected_p} im Archiv gefunden.")
+        else:
+            total_global_games = len(p_global)
+            st.success(f"Datenquelle gesichert. Berechne Statistiken basierend auf {total_global_games} archivierten Spielen.")
             
-            b_games += 1
-            crowns_for += my_cr
-            crowns_against += op_cr
+            b_games, b_wins, b_losses = 0, 0, 0
+            crowns_for, crowns_against = 0, 0
+            clean_sheets, clutch_games, clutch_wins, three_crown_wins = 0, 0, 0, 0
+            unique_cards = set()
             
-            if op_cr == 0: clean_sheets += 1
-            if abs(my_cr - op_cr) == 1:
-                clutch_games += 1
-                if my_cr > op_cr: clutch_wins += 1
-            if my_cr == 3 and my_cr > op_cr:
-                three_crown_wins += 1
+            last_5_html = "<div style='background-color: #121212; border-radius: 6px; border: 1px solid #333; padding: 0 15px; font-family: sans-serif;'>"
+            
+            count = 0
+            # Gehe alle Spiele des Spielers durch (von neu nach alt für die letzten 5, aber iteriere normal für gesamt)
+            for i, r in p_global.iloc[::-1].iterrows(): # Rückwärts für Last 5
+                my_cr = r['Score_Me']
+                op_cr = r['Score_Opp']
+                opp_name = r['Opponent']
                 
-            if my_cr > op_cr: b_wins += 1
-            elif my_cr < op_cr: b_losses += 1
-            
-            if 'cards' in b['team'][0]:
-                for c in b['team'][0]['cards']:
-                    unique_cards.add(c['name'])
+                b_games += 1
+                crowns_for += my_cr
+                crowns_against += op_cr
+                
+                if op_cr == 0: clean_sheets += 1
+                if abs(my_cr - op_cr) == 1:
+                    clutch_games += 1
+                    if my_cr > op_cr: clutch_wins += 1
+                if my_cr == 3 and my_cr > op_cr: three_crown_wins += 1
+                
+                if my_cr > op_cr: b_wins += 1
+                elif my_cr < op_cr: b_losses += 1
+                
+                cards_str = str(r.get('Karten', ''))
+                for c in cards_str.split(","):
+                    if c.strip(): unique_cards.add(c.strip())
+                
+                if count < 5:
+                    t = parse_time(r['Time_ID'])
+                    t_str = t.strftime("%d.%m %H:%M") if pd.notnull(t) else "Unbekannt"
+                    c_me = "#4CAF50" if my_cr > op_cr else ("#F44336" if my_cr < op_cr else "#888")
+                    c_op = "#4CAF50" if op_cr > my_cr else ("#F44336" if op_cr < my_cr else "#888")
+                    w_me = "bold" if my_cr > op_cr else "normal"
+                    w_op = "bold" if op_cr > my_cr else "normal"
+                    border_bottom = "border-bottom: 1px solid #222;" if count != 4 else ""
                     
-            if i < 5:
-                # Historie bauen
-                match_time_raw = b.get('battleTime', '')
-                t_str = "Unbekannt"
-                if match_time_raw:
-                    try:
-                        dt = datetime.strptime(match_time_raw, "%Y%m%dT%H%M%S.%fZ")
-                        t_str = dt.strftime("%d.%m %H:%M")
-                    except: pass
-                
-                opp_name = b['opponent'][0].get('name', 'Unbekannt')
-                c_me = "#4CAF50" if my_cr > op_cr else ("#F44336" if my_cr < op_cr else "#888")
-                c_op = "#4CAF50" if op_cr > my_cr else ("#F44336" if op_cr < my_cr else "#888")
-                w_me = "bold" if my_cr > op_cr else "normal"
-                w_op = "bold" if op_cr > my_cr else "normal"
-                border_bottom = "border-bottom: 1px solid #222;" if i != 4 else ""
-                
-                last_5_html += f"""
+                    last_5_html += f"""
 <div style='display: flex; justify-content: space-between; align-items: center; {border_bottom} padding: 12px 0;'>
 <div style='width: 20%; color: #666; font-size: 0.85rem;'>{t_str}</div>
-<div style='width: 30%; text-align: right; color: {c_me}; font-weight: {w_me}; font-size: 0.95rem;'>{selected_p}</div>
+<div style='width: 30%; text-align: right; color: {c_me}; font-weight: {w_me}; font-size: 0.95rem;'>{selected_p[:10]}</div>
 <div style='width: 20%; text-align: center; font-weight: bold; font-size: 1.1rem; letter-spacing: 2px;'>
 <span style='color: {c_me};'>{my_cr}</span><span style='color: #444;'>:</span><span style='color: {c_op};'>{op_cr}</span>
 </div>
-<div style='width: 30%; text-align: left; color: {c_op}; font-weight: {w_op}; font-size: 0.95rem;'>{opp_name[:10]}</div>
+<div style='width: 30%; text-align: left; color: {c_op}; font-weight: {w_op}; font-size: 0.95rem;'>{str(opp_name)[:10]}</div>
 </div>
 """
-        last_5_html += "</div>"
-        
-        # Berechnungen der 7 KPIs
-        wr_recent = (b_wins / b_games * 100) if b_games > 0 else 0
-        avg_cr_for = crowns_for / b_games if b_games > 0 else 0
-        avg_cr_ag = crowns_against / b_games if b_games > 0 else 0
-        clean_sheet_pct = (clean_sheets / b_games * 100) if b_games > 0 else 0
-        clutch_pct = (clutch_wins / clutch_games * 100) if clutch_games > 0 else 0
-        three_cr_pct = (three_crown_wins / b_wins * 100) if b_wins > 0 else 0
-        flex_index = len(unique_cards)
-        
-        # --- UI DER KPIs ---
-        st.markdown("---")
-        c1, c2, c3 = st.columns(3)
-        
-        with c1:
-            st.markdown("**1. Globale Formkurve**")
-            fig_wr = go.Figure(go.Indicator(
-                mode="gauge+number", value=wr_recent, number={'suffix': "%"},
-                gauge={'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "#444"}, 'bar': {'color': "#2196F3"}, 'bgcolor': "#121212", 'borderwidth': 0}
-            ))
-            fig_wr.update_layout(height=200, margin=dict(l=10, r=10, t=20, b=10), paper_bgcolor="#0E1117", font={'color': "#FFF"})
-            st.plotly_chart(fig_wr, use_container_width=True)
+                count += 1
+            last_5_html += "</div>"
             
-        with c2:
-            st.markdown("**2 & 3. Offensiv- vs Defensiv-Rating**")
-            df_cr = pd.DataFrame({'Typ': ['Offensive', 'Defensive'], 'Kronen': [avg_cr_for, avg_cr_ag]})
-            fig_cr = px.bar(df_cr, x='Typ', y='Kronen', text_auto='.2f', color='Typ', color_discrete_map={'Offensive': '#4CAF50', 'Defensive': '#F44336'})
-            fig_cr.update_layout(height=200, margin=dict(l=10, r=10, t=20, b=10), paper_bgcolor="#0E1117", plot_bgcolor="#121212", showlegend=False, font={'color': "#FFF"}, yaxis_title="", xaxis_title="")
-            st.plotly_chart(fig_cr, use_container_width=True)
+            wr_recent = (b_wins / b_games * 100) if b_games > 0 else 0
+            avg_cr_for = crowns_for / b_games if b_games > 0 else 0
+            avg_cr_ag = crowns_against / b_games if b_games > 0 else 0
+            clean_sheet_pct = (clean_sheets / b_games * 100) if b_games > 0 else 0
+            clutch_pct = (clutch_wins / clutch_games * 100) if clutch_games > 0 else 0
+            three_cr_pct = (three_crown_wins / b_wins * 100) if b_wins > 0 else 0
+            flex_index = len(unique_cards)
             
-        with c3:
-            st.markdown("**7. Deck-Flexibilität**")
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.metric(label="Gespielte einzigartige Karten", value=flex_index, delta="Aus 25 Matches", delta_color="off")
-            
-        c4, c5, c6 = st.columns(3)
-        
-        with c4:
-            st.markdown("**4. Zu-Null-Quote (Clean Sheets)**")
-            fig_cs = px.pie(names=['Clean Sheets', 'Gegentor'], values=[clean_sheet_pct, 100-clean_sheet_pct], hole=0.6, color_discrete_sequence=['#2196F3', '#333'])
-            fig_cs.update_traces(textinfo='none')
-            fig_cs.update_layout(height=200, margin=dict(l=10, r=10, t=20, b=10), paper_bgcolor="#0E1117", font={'color': "#FFF"}, showlegend=False, annotations=[dict(text=f"{clean_sheet_pct:.0f}%", x=0.5, y=0.5, font_size=20, showarrow=False)])
-            st.plotly_chart(fig_cs, use_container_width=True)
-            
-        with c5:
-            st.markdown("**5. Clutch-Rating (Nervenstärke)**")
-            fig_cl = px.pie(names=['Knapper Sieg', 'Knappe Ndl'], values=[clutch_pct, 100-clutch_pct], hole=0.6, color_discrete_sequence=['#4CAF50', '#333'])
-            fig_cl.update_traces(textinfo='none')
-            fig_cl.update_layout(height=200, margin=dict(l=10, r=10, t=20, b=10), paper_bgcolor="#0E1117", font={'color': "#FFF"}, showlegend=False, annotations=[dict(text=f"{clutch_pct:.0f}%", x=0.5, y=0.5, font_size=20, showarrow=False)])
-            st.plotly_chart(fig_cl, use_container_width=True)
-
-        with c6:
-            st.markdown("**6. Zerstörungs-Quote (3-Crowns)**")
-            fig_3c = px.pie(names=['3 Kronen', 'Normaler Sieg'], values=[three_cr_pct, 100-three_cr_pct], hole=0.6, color_discrete_sequence=['#FFC107', '#333'])
-            fig_3c.update_traces(textinfo='none')
-            fig_3c.update_layout(height=200, margin=dict(l=10, r=10, t=20, b=10), paper_bgcolor="#0E1117", font={'color': "#FFF"}, showlegend=False, annotations=[dict(text=f"{three_cr_pct:.0f}%", x=0.5, y=0.5, font_size=20, showarrow=False)])
-            st.plotly_chart(fig_3c, use_container_width=True)
-
-        with st.expander("Erklärungen und Formeln zu den Kennzahlen"):
-            st.markdown("""
-            Diese Daten werden live aus den **letzten 25 globalen Matches** der API gezogen.
-            
-            **1. Globale Formkurve:** 
-            Die exakte Siegquote der letzten 25 Spiele weltweit. 
-            *Formel:* $\frac{Siege}{25} \times 100$
-            
-            **2 & 3. Offensiv- vs Defensiv-Rating:** 
-            Zeigt den Durchschnitt der geholten und zugelassenen Kronen pro Spiel. 
-            *Formel:* $\frac{\sum Eigene Kronen}{25}$ und $\frac{\sum Gegner Kronen}{25}$
-            
-            **4. Zu-Null-Quote (Clean Sheets):** 
-            In wie viel Prozent der letzten 25 Spiele hast du den Gegner komplett ausgeschaltet (0 Kronen zugelassen)?
-            *Formel:* $\frac{Spiele mit 0 Gegentoren}{25} \times 100$
-            
-            **5. Clutch-Rating (Nervenstärke):** 
-            Wir betrachten nur die Spiele, die extrem eng waren (exakt 1 Krone Unterschied). Wie viel Prozent dieser "Zitterpartien" hast du gewonnen?
-            *Formel:* $\frac{Siege mit 1 Krone Diff}{Gesamt Matches mit 1 Krone Diff} \times 100$
-            
-            **6. Zerstörungs-Quote (3-Crown Dominance):** 
-            Von allen Spielen, die du gewonnen hast, wie viele waren absolute Vernichtungen (3 Kronen)?
-            *Formel:* $\frac{3\text{-Kronen Siege}}{Gesamt Siege} \times 100$
-            
-            **7. Deck-Flexibilität:** 
-            Die absolute Anzahl an unterschiedlichen Karten, die in den letzten 25 Spielen benutzt wurden. Ein Wert von 8 bedeutet, du hast kein einziges Mal dein Deck gewechselt.
-            """)
-
-        st.markdown("---")
-        st.subheader("Letzte 5 Globale Matches")
-        st.markdown(last_5_html, unsafe_allow_html=True)
-        
-        st.markdown("---")
-        st.subheader("Lokale Crew-Performance")
-        p_df = df_comp[(df_comp['Spieler1'] == selected_p) | (df_comp['Spieler2'] == selected_p)]
-        top_u, top_w = calculate_card_stats(selected_p, df_comp)
-        
-        lc1, lc2 = st.columns(2)
-        with lc1:
-            st.markdown("**Letzte 5 Spiele (vs. Crew)**")
-            if not p_df.empty:
-                loc_hist_html = "<div style='font-family: monospace; font-size: 0.9rem;'>"
-                for _, r in p_df.sort_values('ID').tail(5).iloc[::-1].iterrows():
-                    is_p1 = r['Spieler1'] == selected_p
-                    opp = r['Spieler2'] if is_p1 else r['Spieler1']
-                    s_me = r['Score1'] if is_p1 else r['Score2']
-                    s_opp = r['Score2'] if is_p1 else r['Score1']
-                    if s_me > s_opp: res_col, res_text = "#4CAF50", "W"
-                    elif s_me < s_opp: res_col, res_text = "#F44336", "L"
-                    else: res_col, res_text = "#888888", "D"
-                    loc_hist_html += f"<div style='margin-bottom: 4px;'><span style='color: {res_col}; font-weight: bold; width: 20px; display: inline-block;'>{res_text}</span> vs {opp} ({s_me}:{s_opp})</div>"
-                loc_hist_html += "</div>"
-                st.markdown(loc_hist_html, unsafe_allow_html=True)
-            else:
-                st.info("Keine lokalen Spiele.")
+            st.markdown("---")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.markdown("**1. Historische Formkurve**")
+                fig_wr = go.Figure(go.Indicator(mode="gauge+number", value=wr_recent, number={'suffix': "%"}, gauge={'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "#444"}, 'bar': {'color': "#2196F3"}, 'bgcolor': "#121212", 'borderwidth': 0}))
+                fig_wr.update_layout(height=200, margin=dict(l=10, r=10, t=20, b=10), paper_bgcolor="#0E1117", font={'color': "#FFF"})
+                st.plotly_chart(fig_wr, use_container_width=True)
+            with c2:
+                st.markdown("**2 & 3. Offensiv vs Defensiv**")
+                df_cr = pd.DataFrame({'Typ': ['Offensiv', 'Defensiv'], 'Kronen': [avg_cr_for, avg_cr_ag]})
+                fig_cr = px.bar(df_cr, x='Typ', y='Kronen', text_auto='.2f', color='Typ', color_discrete_map={'Offensiv': '#4CAF50', 'Defensiv': '#F44336'})
+                fig_cr.update_layout(height=200, margin=dict(l=10, r=10, t=20, b=10), paper_bgcolor="#0E1117", plot_bgcolor="#121212", showlegend=False, font={'color': "#FFF"}, yaxis_title="", xaxis_title="")
+                st.plotly_chart(fig_cr, use_container_width=True)
+            with c3:
+                st.markdown("**7. Deck-Flexibilität**")
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.metric(label="Gespielte einzigartige Karten", value=flex_index, delta=f"Aus {b_games} Matches", delta_color="off")
                 
-        with lc2:
-            st.markdown("**Meistgespielte Karten (Lokal)**")
-            if not top_u.empty:
-                st.dataframe(top_u, hide_index=True, use_container_width=True)
+            c4, c5, c6 = st.columns(3)
+            with c4:
+                st.markdown("**4. Zu-Null-Quote (Clean Sheets)**")
+                fig_cs = px.pie(names=['Clean Sheets', 'Gegentor'], values=[clean_sheet_pct, 100-clean_sheet_pct], hole=0.6, color_discrete_sequence=['#2196F3', '#333'])
+                fig_cs.update_traces(textinfo='none')
+                fig_cs.update_layout(height=200, margin=dict(l=10, r=10, t=20, b=10), paper_bgcolor="#0E1117", font={'color': "#FFF"}, showlegend=False, annotations=[dict(text=f"{clean_sheet_pct:.0f}%", x=0.5, y=0.5, font_size=20, showarrow=False)])
+                st.plotly_chart(fig_cs, use_container_width=True)
+            with c5:
+                st.markdown("**5. Clutch-Rating (Nervenstärke)**")
+                if clutch_games == 0:
+                    st.info("Keine knappen Spiele verzeichnet.")
+                else:
+                    fig_cl = px.pie(names=['Knapper Sieg', 'Knappe Ndl'], values=[clutch_pct, 100-clutch_pct], hole=0.6, color_discrete_sequence=['#4CAF50', '#333'])
+                    fig_cl.update_traces(textinfo='none')
+                    fig_cl.update_layout(height=200, margin=dict(l=10, r=10, t=20, b=10), paper_bgcolor="#0E1117", font={'color': "#FFF"}, showlegend=False, annotations=[dict(text=f"{clutch_pct:.0f}%", x=0.5, y=0.5, font_size=20, showarrow=False)])
+                    st.plotly_chart(fig_cl, use_container_width=True)
+            with c6:
+                st.markdown("**6. Zerstörungs-Quote (3-Crowns)**")
+                if b_wins == 0:
+                    st.info("Keine Siege verzeichnet.")
+                else:
+                    fig_3c = px.pie(names=['3 Kronen', 'Normaler Sieg'], values=[three_cr_pct, 100-three_cr_pct], hole=0.6, color_discrete_sequence=['#FFC107', '#333'])
+                    fig_3c.update_traces(textinfo='none')
+                    fig_3c.update_layout(height=200, margin=dict(l=10, r=10, t=20, b=10), paper_bgcolor="#0E1117", font={'color': "#FFF"}, showlegend=False, annotations=[dict(text=f"{three_cr_pct:.0f}%", x=0.5, y=0.5, font_size=20, showarrow=False)])
+                    st.plotly_chart(fig_3c, use_container_width=True)
+
+            with st.expander("Erklärungen und Formeln zu den Kennzahlen"):
+                st.markdown("""
+                Diese Daten basieren auf den im Archiv hinterlegten globalen Spielen.
+                
+                **1. Historische Formkurve:** Die exakte Siegquote aller erfassten globalen Spiele. Formel: $\frac{Siege}{Matches} \times 100$
+                **2 & 3. Offensiv/Defensiv:** Durchschnitt der geholten/zugelassenen Kronen pro Spiel. Formel: $\frac{\sum Kronen}{Matches}$
+                **4. Zu-Null-Quote:** Spiele ohne eine einzige zugelassene Krone des Gegners. Formel: $\frac{Spiele\ mit\ 0\ Gegentoren}{Matches} \times 100$
+                **5. Clutch-Rating:** Siegesquote bei extrem engen Matches (exakt 1 Krone Differenz). Formel: $\frac{Siege\ mit\ 1\ Krone\ Diff}{Alle\ Matches\ mit\ 1\ Krone\ Diff} \times 100$
+                **6. Zerstörungs-Quote:** Anteil der Siege, die mit 3 Kronen gewonnen wurden. Formel: $\frac{3\text{-Kronen Siege}}{Alle\ Siege} \times 100$
+                **7. Flexibilität:** Absolute Anzahl unterschiedlicher gespielter Karten in der gesamten erfassten Historie.
+                """)
+
+            st.markdown("---")
+            st.subheader("Letzte 5 Globale Matches")
+            st.markdown(last_5_html, unsafe_allow_html=True)
+            
+            st.markdown("---")
+            st.subheader("Lokale Crew-Performance")
+            p_df_local = df_comp[(df_comp['Spieler1'] == selected_p) | (df_comp['Spieler2'] == selected_p)]
+            top_u, top_w = calculate_card_stats(selected_p, df_comp)
+            
+            lc1, lc2 = st.columns(2)
+            with lc1:
+                st.markdown("**Letzte 5 Spiele (vs. Crew)**")
+                if not p_df_local.empty:
+                    loc_hist_html = "<div style='font-family: monospace; font-size: 0.9rem;'>"
+                    for _, r in p_df_local.sort_values('ID').tail(5).iloc[::-1].iterrows():
+                        is_p1 = r['Spieler1'] == selected_p
+                        opp = r['Spieler2'] if is_p1 else r['Spieler1']
+                        s_me = r['Score1'] if is_p1 else r['Score2']
+                        s_opp = r['Score2'] if is_p1 else r['Score1']
+                        if s_me > s_opp: res_col, res_text = "#4CAF50", "W"
+                        elif s_me < s_opp: res_col, res_text = "#F44336", "L"
+                        else: res_col, res_text = "#888888", "D"
+                        loc_hist_html += f"<div style='margin-bottom: 4px;'><span style='color: {res_col}; font-weight: bold; width: 20px; display: inline-block;'>{res_text}</span> vs {opp} ({s_me}:{s_opp})</div>"
+                    loc_hist_html += "</div>"
+                    st.markdown(loc_hist_html, unsafe_allow_html=True)
+                else:
+                    st.info("Keine lokalen Spiele.")
+                    
+            with lc2:
+                st.markdown("**Meistgespielte Karten (Lokal)**")
+                if not top_u.empty:
+                    st.dataframe(top_u, hide_index=True, use_container_width=True)
 
 with tab_dbf:
     st.header("Fun Dashboard")
@@ -722,13 +699,12 @@ with tab_sessions:
                 
                 with st.expander("Wie wird das King of the Hill (KotH) Rating berechnet?"):
                     st.markdown("""
-                    Das **KotH-Rating (0-10)** bewertet, wer die Session dominiert hat. Es ist nicht nur eine einfache Winrate, sondern belohnt auch, wenn jemand *viele* Spiele gemacht hat und *lange* Siegesserien halten konnte.
-                    
+                    Das **KotH-Rating (0-10)** bewertet, wer die Session dominiert hat.
                     **Die Formel (Maximal 10 Punkte):**
-                    *   **Winrate (Max 4.0 Pkt):** Basis-Skillfaktor. Formel: $Winrate \times 4.0$
-                    *   **Dominanz (Max 3.5 Pkt):** Anteil an den maximalen Siegen des besten Spielers. Formel: $\frac{Eigene Siege}{Max Siege aller Spieler} \times 3.5$
-                    *   **Wichtigkeit (Max 2.5 Pkt):** Wie viele Spiele der Session hast du bestritten? Formel: $\frac{Eigene Matches}{Gesamt Matches} \times 2.5$
-                    *   **Streak-Modifikator:** Bonus für Winstreaks, Abzug für Lösestreaks. Formel: $+ (\max Winstreak - 1) \times 0.3 - (\max Lösestreak - 1) \times 0.3$
+                    *   **Winrate (Max 4.0 Pkt):** $Winrate \times 4.0$
+                    *   **Dominanz (Max 3.5 Pkt):** $\frac{Eigene Siege}{Max Siege aller Spieler} \times 3.5$
+                    *   **Wichtigkeit (Max 2.5 Pkt):** $\frac{Eigene Matches}{Gesamt Matches} \times 2.5$
+                    *   **Streak-Modifikator:** $+ (\max Winstreak - 1) \times 0.3 - (\max Lösestreak - 1) \times 0.3$
                     """)
         else:
             st.info("Noch keine vollständigen Sessions registriert.")
@@ -770,20 +746,17 @@ with tab_prognose:
         
         with st.expander("Wie werden diese Buchmacher-Quoten berechnet?"):
             st.markdown("""
-            Die App berechnet für jedes Matchup einen **Power-Score** für beide Spieler, der sich aus drei historischen Faktoren zusammensetzt. Je mehr "Punkte" (Score) ein Spieler sammelt, desto höher seine Siegwahrscheinlichkeit.
-            
             **1. Der Score:**
             Jeder Spieler startet mit 100 Basis-Punkten. Darauf werden addiert:
-            *   **H2H-Bonus:** Historische Winrate gegen diesen spezifischen Gegner. (z.B. 60% WR bringt +15 Punkte). Formel: $1.5 \times (H2H_{WR} - 50)$
-            *   **Formkurve:** Die Net-Wins (Siege minus Niederlagen) aus den letzten 15 Spielen insgesamt. Jeder Net-Win gibt +2 Punkte.
-            *   **Momentum:** Eine aktive Siegesserie (Streak) bringt fette Punkte. Formel: $+4 \times Streak$. (Verliert man gerade in Serie, gibt es Minus-Punkte).
+            *   **H2H-Bonus:** $1.5 \times (H2H_{WR} - 50)$
+            *   **Formkurve:** Jeder Net-Win gibt +2 Punkte.
+            *   **Momentum:** $+4 \times Streak$.
             
             **2. Die Wahrscheinlichkeit:**
-            Die Wahrscheinlichkeit berechnet sich aus dem Anteil am Gesamt-Score beider Spieler:
             $Prob_{A} = \frac{Score_A}{Score_A + Score_B}$
             
             **3. Die Quote:**
-            Buchmacher-Quote = $1 / Wahrscheinlichkeit$. (Eine 50% Chance entspricht einer Quote von 2.00).
+            Buchmacher-Quote = $1 / Wahrscheinlichkeit$.
             """)
         
         st.subheader("Letzte 5 globale Matches")
@@ -831,15 +804,12 @@ with tab_analyse:
 
         with st.expander("Was bedeutet der Power-Index?"):
             st.markdown("""
-            Der Power-Index (PI) ist ein Tacho für die **aktuelle Hitze** eines Spielers. Er ignoriert die All-Time Stats und schaut nur auf die allerjüngste Vergangenheit.
-            
+            Der Power-Index (PI) ist ein Tacho für die **aktuelle Hitze** eines Spielers. Er ignoriert die All-Time Stats.
             Jeder Spieler ruht bei einem neutralen Wert von 50.
-            *   **Form (letzte 15 Spiele):** Hast du mehr Siege als Niederlagen (Net-Wins), steigt der Index. $NetWins \times 2.5$
-            *   **Momentum:** Eine aktive Winstreak drückt den Tacho massiv nach oben. $Streak \times 5.0$
-            
+            *   **Form (letzte 15 Spiele):** $NetWins \times 2.5$
+            *   **Momentum:** $Streak \times 5.0$
             **Die Formel:**
             $PI = \max(0, \min(100, 50 + 2.5 \times NetWins + 5.0 \times Streak))$
-            *(Werte über 60 sind extrem gut, Werte unter 40 zeigen einen Tilt).*
             """)
 
         st.markdown("---")
@@ -864,9 +834,8 @@ with tab_analyse:
         
         with st.expander("Wie lese ich die Dominanz-Matrix?"):
             st.markdown("""
-            Die Matrix ist ein Schere-Stein-Papier Check. Sie zeigt die **pure historische Winrate** von Spieler A gegen Spieler B in Prozent.
+            Die Matrix zeigt die **pure historische Winrate** von Spieler A gegen Spieler B in Prozent.
             *   **Lese-Richtung:** Lies von der Y-Achse (Links) zur X-Achse (Unten). 
-            *   *Beispiel:* Wenn links "resan" steht und du gehst rüber zur Spalte "Jörg", dann zeigt die Zahl, zu wie viel Prozent resan historisch gegen Jörg gewinnt.
             *   **Grün:** Du dominierst den Gegner (>50%).
             *   **Rot:** Er ist dein Angstgegner (<50%).
             """)
@@ -903,11 +872,11 @@ with tab_analyse:
                 
                 with st.expander("Wie normalisiert das Radar diese Werte auf 0-100?"):
                     st.markdown("""
-                    Um Äpfel mit Birnen vergleichen zu können (z.B. Winrate vs. Kronen), werden alle Werte auf eine Skala von 0 bis 100 umgerechnet:
+                    Um Äpfel mit Birnen vergleichen zu können, werden alle Werte auf eine Skala von 0 bis 100 umgerechnet:
                     *   **H2H Winrate & Globale Winrate:** Werden direkt als 0-100% übernommen.
-                    *   **Aktuelle Form:** Net-Wins der letzten 15 Spiele (Maximum ist +15, Minimum -15). Formel: $\frac{NetWins + 15}{30} \times 100$
-                    *   **Momentum:** Winstreak (Max gedeckelt bei 5). Formel: $\frac{Streak + 5}{10} \times 100$
-                    *   **Offensiv-Power:** Durchschnittlich geholte Kronen pro Spiel gegen diesen Gegner (Max. 3.0). Formel: $\frac{AvgCrowns}{3.0} \times 100$
+                    *   **Aktuelle Form:** Formel: $\frac{NetWins + 15}{30} \times 100$
+                    *   **Momentum:** Formel: $\frac{Streak + 5}{10} \times 100$
+                    *   **Offensiv-Power:** Formel: $\frac{AvgCrowns}{3.0} \times 100$
                     """)
                     
             with col_line:
@@ -926,8 +895,8 @@ with tab_mc:
     st.header("Der Turnier-Simulator (Monte Carlo)")
     with st.expander("Wie funktioniert das und was sehe ich hier?"):
         st.markdown("""
-        **Stell dir vor, ein Computer schaut sich 10.000 mögliche Zukünfte an.**
-        Der Computer würfelt jedes einzelne Match im Hintergrund aus. Aber er würfelt nicht fair (50/50), sondern er nutzt eure echten Winrates, eure Form und das Momentum. 
+        **Ein statistischer Blick in die Zukunft.**
+        Der Computer würfelt zehntausende Matches im Hintergrund aus. Er würfelt nicht fair (50/50), sondern er nutzt eure echten Winrates, eure Form und das Momentum, um Turnierausgänge zu simulieren.
         """)
 
     if df_comp.empty:
@@ -996,7 +965,6 @@ with tab_dna:
     else:
         st.markdown(f"<div style='color: #888; font-size: 0.9rem; margin-bottom: 20px;'>Live Snapshot: {latest_match_str}</div>", unsafe_allow_html=True)
         
-        # --- TEIL 1: KONSISTENZ-INDEX ---
         st.subheader("Glicko Konsistenz-Index (Volatilität)")
         st.markdown("<span style='color:#888; font-size:0.85rem;'>Misst die Verlässlichkeit und Nervenstärke eines Spielers.</span>", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
@@ -1021,21 +989,12 @@ with tab_dna:
         with st.expander("Wie wird die Konsistenz berechnet?"):
             st.markdown("""
             Der Score misst die **Volatilität** – also wie extrem die Leistung schwankt.
-            
-            Ein Spieler, der exakt 50% Winrate hat, kann diese auf zwei Arten erreichen:
-            1.  **Die Maschine:** Sieg, Niederlage, Sieg, Niederlage. (Er ist konstant, man weiß was man bekommt).
-            2.  **Die Wundertüte:** 10 Siege in Folge, danach 10 Niederlagen am Stück in einem Tilt. (Er ist extrem unberechenbar).
-            
             **Die Formel:**
-            Wir zählen die Länge jeder einzelnen "Serie" (egal ob Sieg- oder Niederlagenserie) und berechnen den Durchschnitt ($\overline{Streak}$).
+            Wir berechnen den Durchschnitt der Längen aller Serien ($\overline{Streak}$).
             $Konsistenz = 100 - ((\overline{Streak} - 1) \times 25)$
-            
-            *Wenn deine durchschnittliche Serie sehr kurz ist, bleibt der Score hoch (nah an 100). Hast du oft extrem lange Serien (z.B. Durchschnitt 4.0), bricht der Score zusammen.*
             """)
 
         st.markdown("---")
-        
-        # --- TEIL 2: DECK SYNERGIEN ---
         st.subheader("Deck-Synergien (Deadly Duos)")
         st.markdown("<span style='color:#888; font-size:0.85rem;'>Welche 2-Karten-Kombinationen im selben Deck sind für diesen Spieler am tödlichsten?</span>", unsafe_allow_html=True)
         
@@ -1057,11 +1016,7 @@ with tab_dna:
 
         with st.expander("Wie findet der Algorithmus diese 'Synergien'?"):
             st.markdown("""
-            Normale Analysen schauen nur darauf, ob du z.B. mit dem "Ritter" oft gewinnst. Aber Profis gewinnen durch das Zusammenspiel von Karten.
-            
             **Die Logik dahinter:**
-            1.  Der Bot nimmt jedes Spiel, das du gespielt hast.
-            2.  Er spaltet dein 8-Karten Deck auf in **alle möglichen 2er-Kombinationen** (insgesamt 28 Kombinationen pro Deck).
-            3.  Er vergleicht über hunderte Spiele hinweg, welches Karten-Pärchen (z.B. "Ritter + Koboldfass") am häufigsten in Decks auftaucht, die letztendlich auch **gewonnen** haben.
-            4.  Um Zufälle auszuschließen, zeigt das System nur Duos, die du mindestens 3 Mal zusammen gespielt hast.
+            1.  Der Bot spaltet dein 8-Karten Deck auf in **alle möglichen 2er-Kombinationen**.
+            2.  Er vergleicht, welches Karten-Pärchen am häufigsten in Decks auftaucht, die letztendlich auch **gewonnen** haben.
             """)
