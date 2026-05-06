@@ -258,7 +258,7 @@ def get_session_leaderboard(session_df):
     df_lb.index = df_lb.index + 1
     return df_lb
 
-# --- ANALYSE HELPER ---
+# --- ANALYSE HELPER (RADAR & POWER) ---
 def get_power_index(player, df):
     f, s = get_player_form_and_streak(player, df)
     pi = 50 + (f * 2.5) + (s * 5.0)
@@ -281,11 +281,64 @@ def get_player_stats_for_radar(player, opponent, df):
     global_wr = (g_wins / len(p_df) * 100) if len(p_df) > 0 else 50
     return [h2h_wr, form_norm, momentum_norm, offense_norm, global_wr]
 
+# --- NEU: DNA HELPER (SYNERGIEN & KONSISTENZ) ---
+def get_top_synergies(player, df):
+    p_df = df[(df['Spieler1'] == player) | (df['Spieler2'] == player)]
+    synergy_stats = {}
+    for _, r in p_df.iterrows():
+        is_p1 = r['Spieler1'] == player
+        win = (r['Score1'] > r['Score2']) if is_p1 else (r['Score2'] > r['Score1'])
+        cards_str = r['Karten1'] if is_p1 else r['Karten2']
+        cards = [c.strip().capitalize() for c in str(cards_str).split(",") if c.strip()]
+        if len(cards) >= 2:
+            pairs = itertools.combinations(sorted(cards), 2)
+            for pair in pairs:
+                if pair not in synergy_stats: synergy_stats[pair] = {'games': 0, 'wins': 0}
+                synergy_stats[pair]['games'] += 1
+                if win: synergy_stats[pair]['wins'] += 1
+    
+    data = []
+    for pair, stats in synergy_stats.items():
+        if stats['games'] >= 3: # Min 3 Einsätze für Relevanz
+            wr = (stats['wins'] / stats['games']) * 100
+            data.append({'Karten-Duo': f"{pair[0]} & {pair[1]}", 'Spiele': stats['games'], 'Sieg-Quote (%)': wr})
+            
+    res_df = pd.DataFrame(data)
+    if not res_df.empty:
+        res_df = res_df.sort_values(by=['Sieg-Quote (%)', 'Spiele'], ascending=[False, False]).head(5)
+        res_df['Sieg-Quote (%)'] = res_df['Sieg-Quote (%)'].apply(lambda x: f"{x:.1f}%")
+    return res_df
+
+def get_consistency_score(player, df):
+    p_df = df[(df['Spieler1'] == player) | (df['Spieler2'] == player)].sort_values('ID')
+    if len(p_df) < 5: return 50.0, "Zu wenige Spiele", "#888"
+    
+    streak_lengths = []
+    current_streak = 0
+    last_res = None
+    
+    for _, r in p_df.iterrows():
+        is_p1 = r['Spieler1'] == player
+        win = 1 if ((is_p1 and r['Score1'] > r['Score2']) or (not is_p1 and r['Score2'] > r['Score1'])) else 0
+        if last_res is None or win == last_res:
+            current_streak += 1
+        else:
+            streak_lengths.append(current_streak)
+            current_streak = 1
+        last_res = win
+    if current_streak > 0: streak_lengths.append(current_streak)
+        
+    avg_streak = sum(streak_lengths) / len(streak_lengths) if streak_lengths else 1
+    cons_score = max(0, min(100, 100 - ((avg_streak - 1) * 25)))
+    
+    if cons_score >= 80: return cons_score, "Die Maschine (Konstant)", "#4CAF50"
+    elif cons_score >= 50: return cons_score, "Solide Form", "#2196F3"
+    else: return cons_score, "Wundertüte (Streaky)", "#F44336"
+
 # --- MONTE CARLO ENGINE ---
 def run_monte_carlo_tournament(df, target_wins, sims, form_weight):
     players = list(TAGS.keys())
     if len(players) < 2: return {}
-    
     prob_matrix = {}
     for p1 in players:
         prob_matrix[p1] = {}
@@ -303,7 +356,6 @@ def run_monte_carlo_tournament(df, target_wins, sims, form_weight):
         if i % (sims // 10) == 0: my_bar.progress(i / sims, text=progress_text)
         wins = {p: 0 for p in players}
         tournament_winner = None
-        
         while not tournament_winner:
             p1, p2 = random.sample(players, 2)
             prob_p1_wins = prob_matrix[p1][p2]
@@ -313,18 +365,14 @@ def run_monte_carlo_tournament(df, target_wins, sims, form_weight):
             else:
                 wins[p2] += 1
                 if wins[p2] == target_wins: tournament_winner = p2
-                
         results[tournament_winner] += 1
         sweep_threshold = target_wins * 0.2
         others_scores = [wins[p] for p in players if p != tournament_winner]
-        if max(others_scores) <= sweep_threshold:
-            sweeps += 1
+        if max(others_scores) <= sweep_threshold: sweeps += 1
             
     my_bar.empty()
     return results, sweeps
 
-# --- SESSION STATE INITIALISIERUNG FÜR MONTE CARLO ---
-# Damit das Ergebnis beim Wechseln der Diagramme nicht verschwindet!
 if 'mc_results' not in st.session_state:
     st.session_state['mc_results'] = None
     st.session_state['mc_sweeps'] = 0
@@ -348,8 +396,8 @@ st.sidebar.write(f"Datensätze: {len(df_comp)}")
 st.sidebar.write(f"Letztes Match: {latest_match_str}")
 st.sidebar.markdown("---")
 
-tab_dbl, tab_spieler, tab_dbf, tab_nemesis, tab_trends, tab_zeit, tab_sessions, tab_prognose, tab_analyse, tab_mc = st.tabs([
-    "⚔️ 1v1", "👤 Spieler", "🎉 Fun", "💀 Nemesis", "📈 Trends", "⏱️ Heatmap", "🏆 Sessions", "📊 Prognose", "🔬 Analyse", "🎲 Monte Carlo"
+tab_dbl, tab_spieler, tab_dbf, tab_nemesis, tab_trends, tab_zeit, tab_sessions, tab_prognose, tab_analyse, tab_mc, tab_dna = st.tabs([
+    "⚔️ 1v1", "👤 Spieler", "🎉 Fun", "💀 Nemesis", "📈 Trends", "⏱️ Heatmap", "🏆 Sessions", "📊 Prognose", "🔬 Analyse", "🎲 Monte Carlo", "🧬 Profil-DNA"
 ])
 
 with tab_dbl:
@@ -593,15 +641,10 @@ with tab_analyse:
 
 with tab_mc:
     st.header("🎲 Der Turnier-Simulator (Monte Carlo)")
-    
     with st.expander("❓ Wie funktioniert das und was sehe ich hier? (Hier klicken)"):
         st.markdown("""
         **Stell dir vor, Doctor Strange schaut sich 10.000 mögliche Zukünfte an.**
-        Genau das macht dieser Simulator. Wir sagen dem Computer nicht: "Wer gewinnt das nächste Match?", sondern wir sagen: 
-        *"Lass die Jungs jetzt ein Turnier spielen, wer zuerst X Siege hat, ist der Champion."*
-        
-        Der Computer würfelt dann jedes einzelne Match im Hintergrund aus. Aber er würfelt nicht fair (50/50), sondern er nutzt eure echten Winrates, eure Form und das Momentum. 
-        Macht er das 10.000 Mal, wissen wir mathematisch exakt, wer von euch aktuell die besten Karten für einen Gesamtsieg hat.
+        Der Computer würfelt jedes einzelne Match im Hintergrund aus. Aber er würfelt nicht fair (50/50), sondern er nutzt eure echten Winrates, eure Form und das Momentum. 
         """)
 
     if df_comp.empty:
@@ -609,28 +652,12 @@ with tab_mc:
     else:
         st.markdown("### ⚙️ Die Spielregeln (Parameter)")
         col_c1, col_c2, col_c3 = st.columns(3)
-        
-        sim_count = col_c1.select_slider(
-            "🔮 Wie oft soll in die Zukunft geblickt werden?", 
-            options=[100, 1000, 5000, 10000, 50000], value=10000,
-            help="100 geht extrem schnell, 10.000 ist mathematisch viel genauer."
-        )
-        
-        target_w = col_c2.slider(
-            "🏁 Wie viele Siege braucht man für den Turniersieg?", 
-            min_value=3, max_value=200, value=50, step=1,
-            help="Wer zuerst diese Anzahl an Siegen erreicht, gewinnt das Turnier."
-        )
-        
-        fw = col_c3.slider(
-            "🔥 Wie stark zählt die heutige Tagesform?", 
-            min_value=0.0, max_value=2.0, value=1.0, step=0.1, 
-            help="0.0 = Die Tagesform ist egal, nur historische All-Time-Stats zählen. \n1.0 = Normaler Mix. \n2.0 = Wer gerade eine Glückssträhne hat, dominiert die Simulation."
-        )
+        sim_count = col_c1.select_slider("🔮 Wie oft soll in die Zukunft geblickt werden?", options=[100, 1000, 5000, 10000, 50000], value=10000)
+        target_w = col_c2.slider("🏁 Wie viele Siege braucht man für den Turniersieg?", min_value=3, max_value=200, value=50, step=1)
+        fw = col_c3.slider("🔥 Wie stark zählt die heutige Tagesform?", min_value=0.0, max_value=2.0, value=1.0, step=0.1)
         
         if st.button("🚀 Turnier-Simulation jetzt starten", type="primary", use_container_width=True):
             res_dict, total_sweeps = run_monte_carlo_tournament(df_comp, target_w, sim_count, fw)
-            # Wir speichern das Ergebnis im "Gedächtnis" der App
             st.session_state['mc_results'] = res_dict
             st.session_state['mc_sweeps'] = total_sweeps
             st.session_state['mc_sims'] = sim_count
@@ -638,55 +665,34 @@ with tab_mc:
             
         st.markdown("---")
         
-        # Nur anzeigen, wenn schon einmal auf den Button geklickt wurde!
         if st.session_state['mc_results']:
             res_dict = st.session_state['mc_results']
             sims_done = st.session_state['mc_sims']
-            
-            # Daten für die Charts aufbereiten
             res_df = pd.DataFrame(list(res_dict.items()), columns=['Spieler', 'Turniersiege'])
             res_df['Wahrscheinlichkeit'] = (res_df['Turniersiege'] / sims_done) * 100
             res_df = res_df.sort_values(by='Turniersiege', ascending=False)
             
             st.subheader(f"Die Ergebnisse aus {sims_done:,} simulierten Turnieren".replace(',', '.'))
-            
-            # Dropdown für die 4 verschiedenen Ansichten
-            vis_choice = st.selectbox(
-                "👁️ Wie möchtest du das Ergebnis sehen?", 
-                ["1. Klassisches Podest (Balkendiagramm)", "2. Kuchen-Verteilung (Kreisdiagramm)", "3. Wahrscheinlichkeits-Tacho", "4. Harte Fakten (Zahlen)"]
-            )
-            
+            vis_choice = st.selectbox("👁️ Wie möchtest du das Ergebnis sehen?", ["1. Klassisches Podest (Balkendiagramm)", "2. Kuchen-Verteilung (Kreisdiagramm)", "3. Wahrscheinlichkeits-Tacho", "4. Harte Fakten (Zahlen)"])
             col_chart, col_stats = st.columns([2, 1])
-            
             with col_chart:
-                # 1. BALKENDIAGRAMM
                 if "Podest" in vis_choice:
                     fig_mc = px.bar(res_df, x='Spieler', y='Wahrscheinlichkeit', text_auto='.1f', color='Spieler', title=f"Chance auf den Turniersieg")
                     fig_mc.update_traces(textposition='outside')
                     fig_mc.update_layout(yaxis=dict(title='Wahrscheinlichkeit (%)', range=[0, 100]), showlegend=False, paper_bgcolor="#0E1117", plot_bgcolor="#121212", font={'color': "#FFF"})
                     st.plotly_chart(fig_mc, use_container_width=True)
-                
-                # 2. KREISDIAGRAMM (PIE)
                 elif "Kuchen" in vis_choice:
                     fig_pie = px.pie(res_df, names='Spieler', values='Wahrscheinlichkeit', hole=0.4, title="Anteile an den Turniersiegen", color='Spieler')
                     fig_pie.update_traces(textposition='inside', textinfo='percent+label')
                     fig_pie.update_layout(paper_bgcolor="#0E1117", font={'color': "#FFF"}, showlegend=False)
                     st.plotly_chart(fig_pie, use_container_width=True)
-                
-                # 3. TACHOS (GAUGE)
                 elif "Tacho" in vis_choice:
                     st.markdown("**Sieg-Wahrscheinlichkeit pro Spieler**")
                     tacho_cols = st.columns(3)
                     for i, (index, row) in enumerate(res_df.iterrows()):
-                        val = row['Wahrscheinlichkeit']
-                        fig_gauge = go.Figure(go.Indicator(
-                            mode="gauge+number", value=val, number={'suffix': "%"}, title={'text': row['Spieler'], 'font': {'size': 16, 'color': '#FFF'}},
-                            gauge={'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "#444"}, 'bar': {'color': "#2196F3"}, 'bgcolor': "#121212", 'borderwidth': 0}
-                        ))
+                        fig_gauge = go.Figure(go.Indicator(mode="gauge+number", value=row['Wahrscheinlichkeit'], number={'suffix': "%"}, title={'text': row['Spieler'], 'font': {'size': 16, 'color': '#FFF'}}, gauge={'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "#444"}, 'bar': {'color': "#2196F3"}, 'bgcolor': "#121212", 'borderwidth': 0}))
                         fig_gauge.update_layout(height=200, margin=dict(l=10, r=10, t=30, b=10), paper_bgcolor="#0E1117", font={'color': "#FFF"})
                         tacho_cols[i % 3].plotly_chart(fig_gauge, use_container_width=True)
-                
-                # 4. HARTE FAKTEN (ZAHLEN)
                 elif "Fakten" in vis_choice:
                     st.markdown("**Exakte Turniersiege (Absolute Zahlen)**")
                     f_cols = st.columns(3)
@@ -697,11 +703,58 @@ with tab_mc:
 
             with col_stats:
                 st.markdown("<br><br>", unsafe_allow_html=True)
-                target = st.session_state['mc_target']
-                sweeps = st.session_state['mc_sweeps']
-                
-                st.info(f"🏆 **Der Favorit:**<br>Wenn ihr jetzt startet, gewinnt zu {res_df.iloc[0]['Wahrscheinlichkeit']:.1f}% **{res_df.iloc[0]['Spieler']}** das Turnier.")
-                
-                st.warning(f"🧹 **Die Vernichtungs-Quote:**<br>{(sweeps/sims_done)*100:.1f}%<br><span style='font-size:0.75rem;'>(In so vielen Turnieren hat der Sieger alle anderen komplett deklassiert, bevor sie auch nur 20% des Ziels erreichten)</span>")
-                
-                st.success(f"🎲 **Der Glücksfaktor:**<br>Bei einem Ziel von {target} Siegen spielt Glück {'eine sehr große' if target < 10 else ('eine spürbare' if target < 30 else 'fast keine')} Rolle mehr.")
+                st.info(f"🏆 **Der Favorit:**<br>Zu {res_df.iloc[0]['Wahrscheinlichkeit']:.1f}% gewinnt **{res_df.iloc[0]['Spieler']}**.")
+                st.warning(f"🧹 **Vernichtungs-Quote:**<br>{(st.session_state['mc_sweeps']/sims_done)*100:.1f}%")
+
+with tab_dna:
+    st.header("🧬 Profil-DNA & Spiel-Psychologie")
+    if df_comp.empty:
+        st.warning("Keine Datenbasis vorhanden.")
+    else:
+        st.markdown(f"<div style='color: #888; font-size: 0.9rem; margin-bottom: 20px;'>Live Snapshot: {latest_match_str}</div>", unsafe_allow_html=True)
+        
+        # --- TEIL 1: KONSISTENZ-INDEX ---
+        st.subheader("Glicko Konsistenz-Index (Volatilität)")
+        st.markdown("<span style='color:#888; font-size:0.85rem;'>Misst die Abhängigkeit von Siegesserien. Ein hoher Score bedeutet, der Spieler liefert immer verlässlich ab. Ein niedriger Score bedeutet, er hat extreme 'Ups and Downs' (Wundertüte).</span>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        for p in TAGS.keys():
+            score, label, color = get_consistency_score(p, df_comp)
+            st.markdown(f"""
+<div style='margin-bottom: 15px; font-family: sans-serif;'>
+<div style='display: flex; justify-content: space-between; margin-bottom: 5px;'>
+    <span style='color: #FFF; font-weight: bold;'>{p[:10]}</span>
+    <span style='color: {color}; font-weight: bold;'>Score: {score:.0f} / 100</span>
+</div>
+<div style='width: 100%; background-color: #222; border-radius: 4px; height: 12px; overflow: hidden; border: 1px solid #333;'>
+    <div style='width: {score}%; background-color: {color}; height: 100%; border-radius: 4px;'></div>
+</div>
+<div style='text-align: right; font-size: 0.75rem; color: #888; margin-top: 3px;'>
+    Urteil: <span style='color: {color};'>{label}</span>
+</div>
+</div>
+""", unsafe_allow_html=True)
+
+        st.markdown("---")
+        
+        # --- TEIL 2: DECK SYNERGIEN ---
+        st.subheader("Deck-Synergien (Deadly Duos)")
+        st.markdown("<span style='color:#888; font-size:0.85rem;'>Welche 2-Karten-Kombinationen sorgen für die höchste Sieg-Wahrscheinlichkeit? (Min. 3 Einsätze)</span>", unsafe_allow_html=True)
+        
+        sel_player = st.selectbox("Wähle einen Spieler:", list(TAGS.keys()), key="dna_player")
+        synergy_df = get_top_synergies(sel_player, df_comp)
+        
+        if synergy_df.empty:
+            st.info("Zu wenige Daten für Kombinationen (Gleiche Karten müssen öfter gespielt werden).")
+        else:
+            col_s1, col_s2 = st.columns([1, 1])
+            with col_s1:
+                st.dataframe(synergy_df.reset_index(drop=True), use_container_width=True)
+            with col_s2:
+                # Schneller Bar-Chart für die Winrates der Duos
+                # Da die Siegquote im DF ein String ist (z.B. "75.0%"), konvertieren wir kurz für den Chart
+                plot_df = synergy_df.copy()
+                plot_df['WR_Float'] = plot_df['Sieg-Quote (%)'].str.replace('%', '').astype(float)
+                fig_syn = px.bar(plot_df, x='WR_Float', y='Karten-Duo', orientation='h', text='Sieg-Quote (%)', color='Spiele', color_continuous_scale="Viridis", title=f"Tödlichste Duos von {sel_player}")
+                fig_syn.update_layout(yaxis={'categoryorder':'total ascending'}, paper_bgcolor="#0E1117", plot_bgcolor="#121212", font={'color': "#FFF"})
+                st.plotly_chart(fig_syn, use_container_width=True)
