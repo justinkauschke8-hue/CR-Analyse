@@ -139,9 +139,8 @@ def calc_nemesis_kryptonit(df):
             nemesis_data.append({"Spieler": p[:10], "💀 Nemesis": f"{nemesis[0]} ({n_wr:.0f}%)", "☢️ Kryptonit-Karte": f"{krypt[0]} ({krypt[1]}x verloren)"})
     return pd.DataFrame(nemesis_data)
 
-# --- NEU: ALGORITHMUS FÜR BUCHMACHER QUOTEN ---
+# --- ALGORITHMUS FÜR BUCHMACHER QUOTEN ---
 def get_player_form_and_streak(player, df):
-    # Form aus den letzten 15 Spielen
     p_df = df[(df['Spieler1'] == player) | (df['Spieler2'] == player)].sort_values('ID').tail(15)
     if p_df.empty: return 0, 0
     wins = 0
@@ -164,7 +163,6 @@ def get_player_form_and_streak(player, df):
     return net_wins, actual_streak
 
 def calc_matchup_odds(p1, p2, df):
-    # H2H Stats (Der Kern der Wahrscheinlichkeit)
     match_df = df[((df['Spieler1'] == p1) & (df['Spieler2'] == p2)) | ((df['Spieler1'] == p2) & (df['Spieler2'] == p1))]
     total_h2h = len(match_df)
     
@@ -172,34 +170,30 @@ def calc_matchup_odds(p1, p2, df):
     p1_h2h_wr = (p1_h2h_wins / total_h2h * 100) if total_h2h > 0 else 50
     p2_h2h_wr = 100 - p1_h2h_wr if total_h2h > 0 else 50
     
-    # Bonuspunkte aus H2H
     h2h_bonus_p1 = (p1_h2h_wr - 50) * 1.5 
     h2h_bonus_p2 = (p2_h2h_wr - 50) * 1.5
     
-    # Form & Streak holen
     f1, s1 = get_player_form_and_streak(p1, df)
     f2, s2 = get_player_form_and_streak(p2, df)
     
-    # Basis Punkte: 100 + Boni
     score_p1 = max(10, 100 + h2h_bonus_p1 + (f1 * 2) + (s1 * 4))
     score_p2 = max(10, 100 + h2h_bonus_p2 + (f2 * 2) + (s2 * 4))
     
     prob_1 = score_p1 / (score_p1 + score_p2)
     prob_2 = score_p2 / (score_p1 + score_p2)
     
-    # Quoten berechnen (mit leichtem Buchmacher-Cap)
     odds_1 = max(1.01, round(1 / prob_1, 2))
     odds_2 = max(1.01, round(1 / prob_2, 2))
     
-    # Insight-Text generieren
-    insight = "⚔️ Ausgeglichenes Match auf dem Papier."
-    if total_h2h == 0: insight = "🆕 Erstes Aufeinandertreffen!"
-    elif p1_h2h_wr > 50 and s2 >= 3: insight = f"📊 {p1} dominiert H2H, aber {p2} hat eine heiße {s2}x Winstreak!"
-    elif p2_h2h_wr > 50 and s1 >= 3: insight = f"📊 {p2} dominiert H2H, aber {p1} hat eine heiße {s1}x Winstreak!"
-    elif f1 > f2 + 4: insight = f"🔥 {p1} hat momentan die deutlich bessere Formkurve."
-    elif f2 > f1 + 4: insight = f"🔥 {p2} hat momentan die deutlich bessere Formkurve."
-    elif p1_h2h_wr >= 70: insight = f"💀 {p1} ist ein absoluter Albtraum für {p2}."
-    elif p2_h2h_wr >= 70: insight = f"💀 {p2} ist ein absoluter Albtraum für {p1}."
+    # Nüchterne, analytische Insights ohne Emojis oder Motivationstexte
+    insight = "Ausgeglichenes Matchup."
+    if total_h2h == 0: insight = "Keine H2H-Historie."
+    elif p1_h2h_wr > 50 and s2 >= 3: insight = f"H2H-Vorteil {p1} | Momentum {p2} (+{s2})"
+    elif p2_h2h_wr > 50 and s1 >= 3: insight = f"H2H-Vorteil {p2} | Momentum {p1} (+{s1})"
+    elif f1 > f2 + 4: insight = f"Form-Vorteil {p1} (NW: +{f1})"
+    elif f2 > f1 + 4: insight = f"Form-Vorteil {p2} (NW: +{f2})"
+    elif p1_h2h_wr >= 70: insight = f"H2H-Dominanz {p1} ({p1_h2h_wr:.0f}%)"
+    elif p2_h2h_wr >= 70: insight = f"H2H-Dominanz {p2} ({p2_h2h_wr:.0f}%)"
     
     return prob_1*100, prob_2*100, odds_1, odds_2, insight
 
@@ -283,7 +277,6 @@ df_prof = get_df_from_sheet(ws_prof)
 st.sidebar.title("🎮 Clash Analyzer Pro")
 st.sidebar.markdown("---")
 
-# Notfall-Sync Button
 if st.sidebar.button("🔄 Manueller Sync", use_container_width=True):
     st.sidebar.warning("Nutze deinen lokalen Bot für Live-Daten!")
     
@@ -293,7 +286,7 @@ st.sidebar.write(f"Gespeicherte Duelle: {len(df_comp)}")
 
 # Tabs 
 tab_dbl, tab_spieler, tab_dbf, tab_nemesis, tab_trends, tab_zeit, tab_sessions, tab_prognose = st.tabs([
-    "⚔️ DBL (1v1)", "👤 Spieler", "🎉 DBF (Fun)", "💀 Nemesis", "📈 Trends", "⏱️ Zeit & Ausdauer", "🏆 Sessions", "🎲 Prognose"
+    "⚔️ DBL (1v1)", "👤 Spieler", "🎉 DBF (Fun)", "💀 Nemesis", "📈 Trends", "⏱️ Zeit & Ausdauer", "🏆 Sessions", "📊 Prognose"
 ])
 
 with tab_dbl:
@@ -474,33 +467,52 @@ with tab_sessions:
             if not lb.empty: st.dataframe(lb, use_container_width=True)
 
 with tab_prognose:
-    st.header("🎲 Live-Wettquoten (Prognose)")
-    st.markdown("Basierend auf historischem Head-to-Head, aktueller Formkurve und Winstreaks berechnet das System die Wahrscheinlichkeiten für die nächsten Duelle.")
+    st.header("Live-Quoten & Match-Prognosen")
     
     if df_comp.empty:
-        st.warning("Noch keine Spieldaten für Prognosen vorhanden.")
+        st.warning("Datenbasis nicht ausreichend für Prognosen.")
     else:
         pairs = list(itertools.combinations(TAGS.keys(), 2))
-        
-        # Zeige alle möglichen Matchups in einem Grid an
         cols = st.columns(3)
+        
         for idx, (p1, p2) in enumerate(pairs):
             with cols[idx % 3]:
-                st.subheader(f"{p1} vs {p2}")
-                
                 prob1, prob2, odds1, odds2, insight = calc_matchup_odds(p1, p2, df_comp)
                 
-                # Quoten-Anzeige (wie beim Buchmacher)
+                # Professionelle HTML-Wettkarte
                 st.markdown(f"""
-                <div style='background-color: #1E1E1E; padding: 15px; border-radius: 10px; text-align: center; border: 1px solid #444;'>
-                    <h3 style='margin:0;'>Quote: {odds1:.2f} <span style='color:#888;'>-</span> {odds2:.2f}</h3>
-                    <p style='margin:5px 0 0 0; color:#AAA;'>Wahrscheinlichkeit: {prob1:.0f}% zu {prob2:.0f}%</p>
+                <div style='background-color: #1E1E1E; color: #FFF; padding: 16px; border-radius: 8px; border: 1px solid #333; margin-bottom: 15px; font-family: sans-serif;'>
+                    
+                    <!-- Header -->
+                    <div style='text-align: center; font-weight: 600; font-size: 1.05rem; margin-bottom: 16px; border-bottom: 1px solid #333; padding-bottom: 8px;'>
+                        {p1[:10]} <span style='color: #777; font-weight: 400; font-size: 0.85rem; margin: 0 5px;'>vs</span> {p2[:10]}
+                    </div>
+                    
+                    <!-- Quoten & Wahrscheinlichkeiten -->
+                    <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;'>
+                        <div style='text-align: left; width: 45%;'>
+                            <div style='font-size: 1.4rem; font-weight: 700; color: #4CAF50;'>{odds1:.2f}</div>
+                            <div style='font-size: 0.75rem; color: #888; margin-top: 2px;'>{prob1:.0f}%</div>
+                        </div>
+                        
+                        <div style='width: 10%; text-align: center; color: #555; font-size: 0.7rem; text-transform: uppercase;'>Quote</div>
+                        
+                        <div style='text-align: right; width: 45%;'>
+                            <div style='font-size: 1.4rem; font-weight: 700; color: #2196F3;'>{odds2:.2f}</div>
+                            <div style='font-size: 0.75rem; color: #888; margin-top: 2px;'>{prob2:.0f}%</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Doppel-Balken (Waage) -->
+                    <div style='width: 100%; background-color: #2b2b2b; border-radius: 4px; height: 6px; margin-bottom: 16px; display: flex; overflow: hidden;'>
+                        <div style='width: {prob1}%; background-color: #4CAF50; height: 100%;'></div>
+                        <div style='width: {prob2}%; background-color: #2196F3; height: 100%;'></div>
+                    </div>
+                    
+                    <!-- Analytischer Insight -->
+                    <div style='font-size: 0.75rem; color: #AAA; text-align: center; background-color: #252525; padding: 6px; border-radius: 4px; min-height: 26px; display: flex; align-items: center; justify-content: center;'>
+                        {insight}
+                    </div>
+                    
                 </div>
                 """, unsafe_allow_html=True)
-                
-                # Progress-Bar als optische Waage
-                st.progress(int(prob1))
-                
-                # Der "Insider-Tipp"
-                st.info(insight)
-                st.markdown("---")
