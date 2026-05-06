@@ -21,7 +21,7 @@ TAGS = {
 }
 
 # WICHTIG: Füge hier den echten Link aus der Browser-Leiste ein (https://docs...)
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1SZQhK7TeBRI6DspxVJWU31ul_PGTXNOoxcOwE6rn2u8/edit?gid=67403884#gid=67403884"
+SHEET_URL = "HIER_DEN_LINK_ZU_DEINER_GOOGLE_TABELLE_EINFÜGEN"
 
 API_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjhjMzk2MDM1LTgyMzMtNGFhMi04YzVjLTg3NjVmZDliYjE0MSIsImlhdCI6MTc3Nzk4NDU2Niwic3ViIjoiZGV2ZWxvcGVyL2MyYjczNjYyLWE2YjYtNzdkMC00N2I4LTM5YjE0MWYyNzcxOCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyI5Mi4yMDguMjUuMTIiXSwidHlwZSI6ImNsaWVudCJ9XX0.LG_Q_jELSrMoeRPVVU5saPFnNWBrGbzaaaXtl_4HvKEMd-jDBBldJUpLZXQJ2101_tGsxgQ-3bU5tejtmY3wQg"
 
@@ -442,7 +442,6 @@ with tab_prognose:
     if df_comp.empty:
         st.warning("Keine Daten vorhanden.")
     else:
-        # --- BEREICH 1: QUOTEN-KARTEN ---
         pairs = list(itertools.combinations(TAGS.keys(), 2))
         cols = st.columns(3)
         
@@ -457,17 +456,17 @@ with tab_prognose:
     </div>
     <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;'>
         <div style='text-align: left; width: 45%;'>
-            <div style='font-size: 1.3rem; font-weight: 700; color: #E0E0E0;'>{odds1:.2f}</div>
+            <div style='font-size: 1.3rem; font-weight: 700; color: #4CAF50;'>{odds1:.2f}</div>
             <div style='font-size: 0.75rem; color: #777; margin-top: 2px;'>{prob1:.0f}%</div>
         </div>
         <div style='text-align: right; width: 45%;'>
-            <div style='font-size: 1.3rem; font-weight: 700; color: #E0E0E0;'>{odds2:.2f}</div>
+            <div style='font-size: 1.3rem; font-weight: 700; color: #2196F3;'>{odds2:.2f}</div>
             <div style='font-size: 0.75rem; color: #777; margin-top: 2px;'>{prob2:.0f}%</div>
         </div>
     </div>
     <div style='width: 100%; background-color: #222; border-radius: 3px; height: 4px; margin-bottom: 12px; display: flex; overflow: hidden;'>
-        <div style='width: {prob1}%; background-color: #555; height: 100%;'></div>
-        <div style='width: {prob2}%; background-color: #888; height: 100%;'></div>
+        <div style='width: {prob1}%; background-color: #4CAF50; height: 100%;'></div>
+        <div style='width: {prob2}%; background-color: #2196F3; height: 100%;'></div>
     </div>
     <div style='font-size: 0.75rem; color: #888; text-align: center; text-transform: uppercase; letter-spacing: 0.5px;'>
         {insight}
@@ -478,7 +477,6 @@ with tab_prognose:
         st.markdown("<br>", unsafe_allow_html=True)
         st.subheader("Letzte 5 globale Matches")
         
-        # --- BEREICH 2: LETZTE 5 MATCHES (CLEAN UI) ---
         last_5_df = df_comp.sort_values(by='ID', ascending=False).head(5)
         
         history_html = "<div style='background-color: #121212; border-radius: 6px; border: 1px solid #333; padding: 0 15px; font-family: sans-serif;'>"
@@ -489,7 +487,6 @@ with tab_prognose:
             p1, p2 = r['Spieler1'], r['Spieler2']
             s1, s2 = r['Score1'], r['Score2']
             
-            # Farb-Logik für Gewinner/Verlierer
             c_p1 = "#FFF" if s1 > s2 else "#666"
             c_p2 = "#FFF" if s2 > s1 else "#666"
             w_p1 = "bold" if s1 > s2 else "normal"
@@ -497,15 +494,15 @@ with tab_prognose:
             border_bottom = "border-bottom: 1px solid #222;" if idx != last_5_df.index[-1] else ""
             
             history_html += f"""
-            <div style='display: flex; justify-content: space-between; align-items: center; {border_bottom} padding: 12px 0;'>
-                <div style='width: 15%; color: #666; font-size: 0.85rem;'>{t_str}</div>
-                <div style='width: 35%; text-align: right; color: {c_p1}; font-weight: {w_p1}; font-size: 0.95rem;'>{p1}</div>
-                <div style='width: 15%; text-align: center; font-weight: bold; font-size: 1.1rem; letter-spacing: 2px;'>
-                    <span style='color: {c_p1};'>{s1}</span><span style='color: #444;'>:</span><span style='color: {c_p2};'>{s2}</span>
-                </div>
-                <div style='width: 35%; text-align: left; color: {c_p2}; font-weight: {w_p2}; font-size: 0.95rem;'>{p2}</div>
-            </div>
-            """
+<div style='display: flex; justify-content: space-between; align-items: center; {border_bottom} padding: 12px 0;'>
+    <div style='width: 15%; color: #666; font-size: 0.85rem;'>{t_str}</div>
+    <div style='width: 35%; text-align: right; color: {c_p1}; font-weight: {w_p1}; font-size: 0.95rem;'>{p1}</div>
+    <div style='width: 15%; text-align: center; font-weight: bold; font-size: 1.1rem; letter-spacing: 2px;'>
+        <span style='color: {c_p1};'>{s1}</span><span style='color: #444;'>:</span><span style='color: {c_p2};'>{s2}</span>
+    </div>
+    <div style='width: 35%; text-align: left; color: {c_p2}; font-weight: {w_p2}; font-size: 0.95rem;'>{p2}</div>
+</div>
+"""
         history_html += "</div>"
         
         st.markdown(history_html, unsafe_allow_html=True)
