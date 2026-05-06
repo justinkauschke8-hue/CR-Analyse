@@ -14,7 +14,15 @@ st.set_page_config(page_title="Clash Analyzer Pro", page_icon="🏆", layout="wi
 DB_FILE = "clash_karten_data.csv"      
 DB_FUN_FILE = "clash_fun_data.csv"     
 API_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjhjMzk2MDM1LTgyMzMtNGFhMi04YzVjLTg3NjVmZDliYjE0MSIsImlhdCI6MTc3Nzk4NDU2Niwic3ViIjoiZGV2ZWxvcGVyL2MyYjczNjYyLWE2YjYtNzdkMC00N2I4LTM5YjE0MWYyNzcxOCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyI5Mi4yMDguMjUuMTIiXSwidHlwZSI6ImNsaWVudCJ9XX0.LG_Q_jELSrMoeRPVVU5saPFnNWBrGbzaaaXtl_4HvKEMd-jDBBldJUpLZXQJ2101_tGsxgQ-3bU5tejtmY3wQg"
-OLD_TAGS = {"resan": "R902QGYCP", "gooterplayer": "VCGLJU02", "Jörg": "YY89R9L9G"}
+
+# --- HARDCODED TAGS (Bypass für den Cloud-Block) ---
+# WICHTIG: Ändere die Namen in den Anführungszeichen zu euren echten In-Game Namen!
+TAGS = {
+    "resan":            "R902QGYCP",  # Ersetze EchterName1 (RH)
+    "gooterplayer":     "VCGLJU02",   # Ersetze EchterName2 (JB)
+    "Jörg":             "YY89R9L9G"   # Ersetze EchterName3 (JK)
+}
+NAME_MAPPING = {} 
 
 # --- API LOGIK ---
 @st.cache_data(ttl=60)
@@ -27,22 +35,6 @@ def get_api_data(endpoint, tag):
     except: return None
 
 # --- INITIALISIERUNG ---
-@st.cache_resource
-def init_tags():
-    tags, mapping = {}, {}
-    for old_initial, tag in OLD_TAGS.items():
-        profile = get_api_data("", tag)
-        if profile and 'name' in profile:
-            real_name = profile['name']
-            tags[real_name] = tag
-            mapping[old_initial] = real_name
-        else:
-            tags[old_initial] = tag
-            mapping[old_initial] = old_initial
-    return tags, mapping
-
-TAGS, NAME_MAPPING = init_tags()
-
 def init_and_migrate_db(file_path):
     columns = ["ID", "Spieler1", "Spieler2", "Score1", "Score2", "Karten1", "Karten2"]
     if not os.path.exists(file_path): pd.DataFrame(columns=columns).to_csv(file_path, index=False)
@@ -53,11 +45,6 @@ def init_and_migrate_db(file_path):
             if "ID" not in df.columns:
                 df.insert(0, "ID", "LEGACY_" + df.index.astype(str))
                 changed = True
-            if not df.empty:
-                s1_orig = df['Spieler1'].copy()
-                df['Spieler1'] = df['Spieler1'].replace(NAME_MAPPING)
-                df['Spieler2'] = df['Spieler2'].replace(NAME_MAPPING)
-                if not df['Spieler1'].equals(s1_orig): changed = True
             if changed: df.to_csv(file_path, index=False)
         except: pass
 
@@ -252,7 +239,6 @@ def get_session_leaderboard(session_df):
             "WR": f"{wr*100:.0f}%", "Max Streaks": f"+{data['max_w_streak']} / -{data['max_l_streak']}", "Rating (KotH)": round(final_rating, 1)
         })
         
-    # --- HIER IST DER SICHERHEITS-CHECK ---
     if not leaderboard:
         return pd.DataFrame()
         
@@ -269,23 +255,22 @@ except: df_fun = pd.DataFrame()
 # Sidebar
 st.sidebar.title("🎮 Clash Analyzer Pro")
 st.sidebar.markdown("---")
+st.sidebar.info("Hinweis: Livedaten-Sync funktioniert aufgrund von API-Beschränkungen in der Cloud nicht. Bitte ziehe neue CSV-Dateien direkt auf GitHub hoch.")
+
+st.sidebar.markdown(f"*Letztes Update: {datetime.now().strftime('%H:%M:%S')}*")
+
+# Debugging Info (optional, aber hilfreich)
+st.sidebar.markdown("---")
 st.sidebar.subheader("🛠️ Debug Info (System-Röntgen)")
 st.sidebar.write(f"Gefundene Spiele in DB: {len(df_comp)}")
 st.sidebar.write(f"Eingestellte Such-Namen: {list(TAGS.keys())}")
 if not df_comp.empty:
-    st.sidebar.write("Echte Namen in der Datenbank:")
+    st.sidebar.write("Echte Namen in der Datenbank (Vergleich):")
     st.sidebar.write(df_comp['Spieler1'].unique())
-if st.sidebar.button("🔄 Livedaten Synchronisieren", use_container_width=True, type="primary"):
-    with st.spinner("Frage Supercell-Server ab..."):
-        c, f = scan_for_battles()
-        st.sidebar.success(f"{c} Kompetitiv / {f} Fun Matches importiert.")
-        st.rerun()
 
-st.sidebar.markdown(f"*Letztes Update: {datetime.now().strftime('%H:%M:%S')}*")
-
-# Tabs inkl. neuem Orakel Tab
-tab_dbl, tab_spieler, tab_dbf, tab_nemesis, tab_trends, tab_sessions, tab_orakel = st.tabs([
-    "⚔️ DBL (1v1)", "👤 Spieler", "🎉 DBF (Fun)", "💀 Nemesis", "📈 Trends", "🏆 Sessions", "🔮 Orakel"
+# Tabs 
+tab_dbl, tab_spieler, tab_dbf, tab_nemesis, tab_trends, tab_zeit, tab_sessions, tab_orakel = st.tabs([
+    "⚔️ DBL (1v1)", "👤 Spieler", "🎉 DBF (Fun)", "💀 Nemesis", "📈 Trends", "⏱️ Zeit & Ausdauer", "🏆 Sessions", "🔮 Orakel"
 ])
 
 with tab_dbl:
@@ -318,12 +303,14 @@ with tab_spieler:
             if api:
                 st.write(f"🏆 **Trophäen:** {api.get('trophies', 0)} (Rekord: {api.get('bestTrophies', 0)})")
                 st.write(f"⚔️ **Siege:** {api.get('wins',0)} | **Ndl:** {api.get('losses',0)}")
+            else:
+                st.write("*(Live-Profil-Daten derzeit nicht abrufbar)*")
             
             top_u, top_w = calculate_card_stats(name, df_comp)
             if not top_u.empty:
-                st.markdown("**Meistgespielte Karten (Lokal):**")
+                st.markdown("**Meistgespielte Karten:**")
                 st.dataframe(top_u, hide_index=True, use_container_width=True)
-                st.markdown("**Beste Winrate (Lokal):**")
+                st.markdown("**Beste Winrate:**")
                 st.dataframe(top_w, hide_index=True, use_container_width=True)
 
 with tab_dbf:
@@ -338,7 +325,10 @@ with tab_nemesis:
     st.header("Kryptonit & Angstgegner")
     if not df_comp.empty:
         nem_df = calc_nemesis_kryptonit(df_comp)
-        st.table(nem_df)
+        if not nem_df.empty:
+            st.table(nem_df)
+        else:
+            st.info("Noch nicht genug Daten für Angstgegner.")
 
 with tab_trends:
     st.header("Interaktive Formkurve (Net-Wins)")
@@ -373,6 +363,64 @@ with tab_trends:
                                              line=dict(dash='dash'), name=f"{p} (Trend)", opacity=0.5))
             st.plotly_chart(fig, use_container_width=True)
 
+with tab_zeit:
+    st.header("⏱️ Zeit & Ausdauer (Fatigue Index)")
+    if not df_comp.empty:
+        df_time = df_comp.copy()
+        df_time['Time'] = df_time['ID'].apply(parse_time)
+        df_time = df_time.dropna(subset=['Time']).sort_values('Time')
+
+        if not df_time.empty:
+            st.subheader("1. Prime-Time Analyse (Uhrzeit)")
+            st.markdown("Um wie viel Uhr hat welcher Spieler statistisch die höchste Winrate?")
+            
+            heatmap_data = []
+            for p in TAGS.keys():
+                p_df = df_time[(df_time['Spieler1'] == p) | (df_time['Spieler2'] == p)].copy()
+                p_df['Hour'] = p_df['Time'].dt.hour
+                for h in range(24):
+                    h_df = p_df[p_df['Hour'] == h]
+                    if len(h_df) > 0:
+                        wins = sum(1 for _, r in h_df.iterrows() if (r['Spieler1']==p and r['Score1']>r['Score2']) or (r['Spieler2']==p and r['Score2']>r['Score1']))
+                        heatmap_data.append({"Spieler": p[:10], "Stunde": f"{h}:00", "Winrate": (wins/len(h_df))*100, "Spiele": len(h_df)})
+            
+            hm_df = pd.DataFrame(heatmap_data)
+            if not hm_df.empty:
+                pivot_hm = hm_df.pivot(index="Spieler", columns="Stunde", values="Winrate").fillna(0)
+                fig_hm = px.imshow(pivot_hm, text_auto=".0f", aspect="auto", 
+                                   color_continuous_scale="RdYlGn", origin="lower",
+                                   title="Winrate (%) je nach Uhrzeit", labels=dict(color="Winrate %"))
+                st.plotly_chart(fig_hm, use_container_width=True)
+
+            st.markdown("---")
+            st.subheader("2. Die Ermüdungskurve (Konzentrationsabfall)")
+            st.markdown("Wie entwickelt sich die Winrate, je länger man ohne Pause am Stück spielt?")
+            
+            df_time['Time_Diff'] = df_time['Time'].diff()
+            df_time['Session_Num'] = (df_time['Time_Diff'] > pd.Timedelta(minutes=30)).cumsum()
+            
+            fatigue_data = []
+            for p in TAGS.keys():
+                p_df = df_time[(df_time['Spieler1'] == p) | (df_time['Spieler2'] == p)].copy()
+                p_df['Spiel_Nr_in_Session'] = p_df.groupby('Session_Num').cumcount() + 1
+                
+                for nr in range(1, 15):
+                    nr_df = p_df[p_df['Spiel_Nr_in_Session'] == nr]
+                    if len(nr_df) >= 2: 
+                        wins = sum(1 for _, r in nr_df.iterrows() if (r['Spieler1']==p and r['Score1']>r['Score2']) or (r['Spieler2']==p and r['Score2']>r['Score1']))
+                        fatigue_data.append({"Spieler": p[:10], "Spiel im Ablauf": nr, "Winrate": (wins/len(nr_df))*100, "Datenpunkte": len(nr_df)})
+
+            f_df = pd.DataFrame(fatigue_data)
+            if not f_df.empty:
+                fig_fatigue = px.line(f_df, x="Spiel im Ablauf", y="Winrate", color="Spieler", markers=True,
+                                      title="Winrate basierend auf der Länge der Session",
+                                      hover_data=["Datenpunkte"])
+                fig_fatigue.update_xaxes(tickmode='linear', dtick=1) 
+                fig_fatigue.update_yaxes(range=[0, 105])
+                st.plotly_chart(fig_fatigue, use_container_width=True)
+        else:
+            st.info("Zu wenige Zeitstempel-Daten für die Analyse vorhanden.")
+
 with tab_sessions:
     st.header("Session Leaderboards")
     if not df_comp.empty:
@@ -391,33 +439,29 @@ with tab_sessions:
                 st.info(f"⏱️ **Dauer:** {dur_str}  |  🎮 **Spiele:** {len(s_df)}")
             
             lb = get_session_leaderboard(s_df)
-            st.dataframe(lb, use_container_width=True)
+            if not lb.empty:
+                st.dataframe(lb, use_container_width=True)
+            else:
+                st.info("In dieser Session gibt es nicht genügend verwertbare 1v1-Spiele.")
         else:
             st.warning("Noch keine Sessions (mit mind. 2 Spielen) gefunden.")
 
-# --- DAS NEUE ORAKEL ---
 with tab_orakel:
     st.header("🔮 Das Match-Orakel")
-    st.markdown("Berechne die statistische Wahrscheinlichkeit für das nächste Aufeinandertreffen basierend auf **historischer Dominanz (60%)** und **aktuellem Momentum der letzten 10 Spiele (40%)**.")
-
     cols = st.columns(2)
     p1 = cols[0].selectbox("Herausforderer 1", list(TAGS.keys()), index=0)
-    p2 = cols[1].selectbox("Herausforderer 2", list(TAGS.keys()), index=1)
+    p2 = cols[1].selectbox("Herausforderer 2", list(TAGS.keys()), index=1 if len(TAGS)>1 else 0)
 
     if p1 == p2:
         st.warning("Bitte wähle zwei unterschiedliche Spieler aus.")
     elif not df_comp.empty:
         if st.button("⚡ Prognose Berechnen", use_container_width=True, type="primary"):
-            
-            # 1. Historie abrufen
             h2h = df_comp[((df_comp['Spieler1'] == p1) & (df_comp['Spieler2'] == p2)) | ((df_comp['Spieler1'] == p2) & (df_comp['Spieler2'] == p1))]
-            if len(h2h) == 0:
-                hist_w1 = 0.5 
+            if len(h2h) == 0: hist_w1 = 0.5 
             else:
                 w1 = sum(1 for _, r in h2h.iterrows() if (r['Spieler1']==p1 and r['Score1']>r['Score2']) or (r['Spieler2']==p1 and r['Score2']>r['Score1']))
                 hist_w1 = w1 / len(h2h)
 
-            # 2. Momentum berechnen (Die letzten 10 Spiele beider Spieler)
             def get_recent_wr(p, n=10):
                 pdf = df_comp[(df_comp['Spieler1'] == p) | (df_comp['Spieler2'] == p)].sort_values('ID').tail(n)
                 if len(pdf) == 0: return 0.5
@@ -430,40 +474,25 @@ with tab_orakel:
             if mom_p1 + mom_p2 == 0: rel_mom = 0.5
             else: rel_mom = mom_p1 / (mom_p1 + mom_p2)
 
-            # 3. Der Master-Algorithmus (60/40)
             prob_p1 = (0.6 * hist_w1) + (0.4 * rel_mom)
             prob_p2 = 1.0 - prob_p1
 
             st.markdown("---")
             res_col1, res_col2 = st.columns(2)
-            res_col1.metric(f"Siegwahrscheinlichkeit: {p1[:10]}", f"{prob_p1*100:.1f}%", f"Historie: {hist_w1*100:.0f}% | Letzte 10 Spiele: {mom_p1*100:.0f}% WR")
-            res_col2.metric(f"Siegwahrscheinlichkeit: {p2[:10]}", f"{prob_p2*100:.1f}%", f"Historie: {(1-hist_w1)*100:.0f}% | Letzte 10 Spiele: {mom_p2*100:.0f}% WR", delta_color="inverse")
+            res_col1.metric(f"Siegwahrscheinlichkeit: {p1[:10]}", f"{prob_p1*100:.1f}%", f"Historie: {hist_w1*100:.0f}% | Letzte 10: {mom_p1*100:.0f}% WR")
+            res_col2.metric(f"Siegwahrscheinlichkeit: {p2[:10]}", f"{prob_p2*100:.1f}%", f"Historie: {(1-hist_w1)*100:.0f}% | Letzte 10: {mom_p2*100:.0f}% WR", delta_color="inverse")
 
-            # 4. Tachometer Visualisierung (Gauge Chart)
             fig_gauge = go.Figure(go.Indicator(
-                mode = "gauge+number",
-                value = prob_p1 * 100,
+                mode = "gauge+number", value = prob_p1 * 100,
                 number = {'suffix': "%", 'font': {'size': 40}},
                 title = {'text': f"Vorteil für {p1[:10]}", 'font': {'size': 24}},
                 gauge = {
                     'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "darkblue"},
-                    'bar': {'color': "rgba(0,0,0,0)"}, 
-                    'bgcolor': "white",
-                    'borderwidth': 2,
-                    'bordercolor': "gray",
-                    'steps': [
-                        {'range': [0, 50], 'color': "#e74c3c"},     # Rot für P2
-                        {'range': [50, 100], 'color': "#2ecc71"}],  # Grün für P1
-                    'threshold': {
-                        'line': {'color': "black", 'width': 5},
-                        'thickness': 0.75,
-                        'value': prob_p1 * 100}
+                    'bar': {'color': "rgba(0,0,0,0)"}, 'bgcolor': "white",
+                    'borderwidth': 2, 'bordercolor': "gray",
+                    'steps': [{'range': [0, 50], 'color': "#e74c3c"}, {'range': [50, 100], 'color': "#2ecc71"}],
+                    'threshold': {'line': {'color': "black", 'width': 5}, 'thickness': 0.75, 'value': prob_p1 * 100}
                 }
             ))
             fig_gauge.update_layout(height=350, margin=dict(l=10, r=10, t=50, b=10))
             st.plotly_chart(fig_gauge, use_container_width=True)
-
-            # 5. Orakel-Spruch
-            if prob_p1 > 0.65: st.success(f"🔮 **Fazit:** {p1} ist der klare Favorit. {p2} braucht ein Wunder (oder ein perfektes Konter-Deck).")
-            elif prob_p1 < 0.35: st.error(f"🔮 **Fazit:** {p2} ist aktuell kaum zu stoppen. Schweres Matchup für {p1}.")
-            else: st.warning("🔮 **Fazit:** Ein absoluter Thriller! Die Quoten stehen 50:50. Hier entscheidet die Tagesform.")
