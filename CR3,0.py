@@ -22,7 +22,7 @@ TAGS = {
 }
 
 # WICHTIG: Füge hier den echten Link aus der Browser-Leiste ein (https://docs...)
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1SZQhK7TeBRI6DspxVJWU31ul_PGTXNOoxcOwE6rn2u8/edit?gid=67403884#gid=67403884"
+SHEET_URL = "HIER_DEN_LINK_ZU_DEINER_GOOGLE_TABELLE_EINFÜGEN"
 
 API_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjhjMzk2MDM1LTgyMzMtNGFhMi04YzVjLTg3NjVmZDliYjE0MSIsImlhdCI6MTc3Nzk4NDU2Niwic3ViIjoiZGV2ZWxvcGVyL2MyYjczNjYyLWE2YjYtNzdkMC00N2I4LTM5YjE0MWYyNzcxOCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyI5Mi4yMDguMjUuMTIiXSwidHlwZSI6ImNsaWVudCJ9XX0.LG_Q_jELSrMoeRPVVU5saPFnNWBrGbzaaaXtl_4HvKEMd-jDBBldJUpLZXQJ2101_tGsxgQ-3bU5tejtmY3wQg"
 
@@ -46,16 +46,6 @@ def get_df_from_sheet(worksheet):
     data = worksheet.get_all_records()
     if data: return pd.DataFrame(data)
     return pd.DataFrame()
-
-# --- API LOGIK ---
-@st.cache_data(ttl=60)
-def get_api_data(endpoint, tag):
-    url = f"https://api.clashroyale.com/v1/players/%23{tag}/{endpoint}" if endpoint else f"https://api.clashroyale.com/v1/players/%23{tag}"
-    headers = {"Authorization": f"Bearer {API_KEY}"}
-    try:
-        res = requests.get(url, headers=headers, timeout=5)
-        return res.json() if res.status_code == 200 else None
-    except: return None
 
 # --- HELFER FUNKTIONEN ---
 def parse_time(id_str):
@@ -89,7 +79,6 @@ def get_h2h_stats_data(df):
         match_df = df[((df['Spieler1'] == p1) & (df['Spieler2'] == p2)) | ((df['Spieler1'] == p2) & (df['Spieler2'] == p1))].sort_values(by='ID')
         if len(match_df) == 0: continue
         wins_p1, wins_p2, streak_winner, streak_count, all_time_streak_winner, all_time_streak_count = 0, 0, None, 0, None, 0
-        
         for _, row in match_df.iterrows():
             is_p1_win = (row['Spieler1'] == p1 and row['Score1'] > row['Score2']) or (row['Spieler2'] == p1 and row['Score2'] > row['Score1'])
             if is_p1_win:
@@ -101,7 +90,6 @@ def get_h2h_stats_data(df):
                 if streak_winner == p2: streak_count += 1
                 else: streak_winner, streak_count = p2, 1
             if streak_count > all_time_streak_count: all_time_streak_count, all_time_streak_winner = streak_count, streak_winner
-                
         total = wins_p1 + wins_p2
         wr_p1, wr_p2 = (wins_p1 / total) * 100, (wins_p2 / total) * 100
         results.append({
@@ -132,7 +120,6 @@ def calc_nemesis_kryptonit(df):
                 for c in str(opp_cards).split(","):
                     c = c.strip()
                     if c: krypt_cards[c] = krypt_cards.get(c, 0) + 1
-                    
         nemesis = max(opp_wr.items(), key=lambda x: (x[1][1]/x[1][0] if x[1][0]>0 else 0, x[1][1]), default=(None, [0,0]))
         krypt = max(krypt_cards.items(), key=lambda x: x[1], default=("Keine", 0))
         if nemesis[0]:
@@ -156,7 +143,6 @@ def get_player_form_and_streak(player, df):
         else:
             if is_win_streak in (None, False): streak += 1; is_win_streak = False
             else: streak = 1; is_win_streak = False
-                
     net_wins = wins - (len(p_df) - wins)
     actual_streak = streak if is_win_streak else -streak
     return net_wins, actual_streak
@@ -164,14 +150,12 @@ def get_player_form_and_streak(player, df):
 def calc_matchup_odds(p1, p2, df, form_weight=1.0):
     match_df = df[((df['Spieler1'] == p1) & (df['Spieler2'] == p2)) | ((df['Spieler1'] == p2) & (df['Spieler2'] == p1))]
     total_h2h = len(match_df)
-    
     p1_h2h_wins = sum(1 for _, r in match_df.iterrows() if (r['Spieler1']==p1 and r['Score1']>r['Score2']) or (r['Spieler2']==p1 and r['Score2']>r['Score1']))
     p1_h2h_wr = (p1_h2h_wins / total_h2h * 100) if total_h2h > 0 else 50
     p2_h2h_wr = 100 - p1_h2h_wr if total_h2h > 0 else 50
     
     h2h_bonus_p1 = (p1_h2h_wr - 50) * 1.5 
     h2h_bonus_p2 = (p2_h2h_wr - 50) * 1.5
-    
     f1, s1 = get_player_form_and_streak(p1, df)
     f2, s2 = get_player_form_and_streak(p2, df)
     
@@ -180,7 +164,6 @@ def calc_matchup_odds(p1, p2, df, form_weight=1.0):
     
     prob_1 = score_p1 / (score_p1 + score_p2)
     prob_2 = score_p2 / (score_p1 + score_p2)
-    
     odds_1 = max(1.01, round(1 / prob_1, 2))
     odds_2 = max(1.01, round(1 / prob_2, 2))
     
@@ -251,10 +234,10 @@ def get_session_leaderboard(session_df):
         final_rating = max(0.0, min(10.0, score_wr + score_dom + score_imp + streak_mod))
         leaderboard.append({
             "Spieler": p[:10], "Matches": data["P"], "Wins": data["W"], "Losses": data["L"], 
-            "WR": f"{wr*100:.0f}%", "Streaks": f"+{data['max_w_streak']} / -{data['max_l_streak']}", "Rating": round(final_rating, 1)
+            "WR": f"{wr*100:.0f}%", "Streaks": f"+{data['max_w_streak']} / -{data['max_l_streak']}", "Rating (KotH)": round(final_rating, 1)
         })
     if not leaderboard: return pd.DataFrame()
-    df_lb = pd.DataFrame(leaderboard).sort_values(by="Rating", ascending=False).reset_index(drop=True)
+    df_lb = pd.DataFrame(leaderboard).sort_values(by="Rating (KotH)", ascending=False).reset_index(drop=True)
     df_lb.index = df_lb.index + 1
     return df_lb
 
@@ -281,7 +264,7 @@ def get_player_stats_for_radar(player, opponent, df):
     global_wr = (g_wins / len(p_df) * 100) if len(p_df) > 0 else 50
     return [h2h_wr, form_norm, momentum_norm, offense_norm, global_wr]
 
-# --- NEU: DNA HELPER (SYNERGIEN & KONSISTENZ) ---
+# --- DNA HELPER (SYNERGIEN & KONSISTENZ) ---
 def get_top_synergies(player, df):
     p_df = df[(df['Spieler1'] == player) | (df['Spieler2'] == player)]
     synergy_stats = {}
@@ -296,13 +279,11 @@ def get_top_synergies(player, df):
                 if pair not in synergy_stats: synergy_stats[pair] = {'games': 0, 'wins': 0}
                 synergy_stats[pair]['games'] += 1
                 if win: synergy_stats[pair]['wins'] += 1
-    
     data = []
     for pair, stats in synergy_stats.items():
-        if stats['games'] >= 3: # Min 3 Einsätze für Relevanz
+        if stats['games'] >= 3:
             wr = (stats['wins'] / stats['games']) * 100
             data.append({'Karten-Duo': f"{pair[0]} & {pair[1]}", 'Spiele': stats['games'], 'Sieg-Quote (%)': wr})
-            
     res_df = pd.DataFrame(data)
     if not res_df.empty:
         res_df = res_df.sort_values(by=['Sieg-Quote (%)', 'Spiele'], ascending=[False, False]).head(5)
@@ -312,25 +293,18 @@ def get_top_synergies(player, df):
 def get_consistency_score(player, df):
     p_df = df[(df['Spieler1'] == player) | (df['Spieler2'] == player)].sort_values('ID')
     if len(p_df) < 5: return 50.0, "Zu wenige Spiele", "#888"
-    
-    streak_lengths = []
-    current_streak = 0
-    last_res = None
-    
+    streak_lengths, current_streak, last_res = [], 0, None
     for _, r in p_df.iterrows():
         is_p1 = r['Spieler1'] == player
         win = 1 if ((is_p1 and r['Score1'] > r['Score2']) or (not is_p1 and r['Score2'] > r['Score1'])) else 0
-        if last_res is None or win == last_res:
-            current_streak += 1
+        if last_res is None or win == last_res: current_streak += 1
         else:
             streak_lengths.append(current_streak)
             current_streak = 1
         last_res = win
     if current_streak > 0: streak_lengths.append(current_streak)
-        
     avg_streak = sum(streak_lengths) / len(streak_lengths) if streak_lengths else 1
     cons_score = max(0, min(100, 100 - ((avg_streak - 1) * 25)))
-    
     if cons_score >= 80: return cons_score, "Die Maschine (Konstant)", "#4CAF50"
     elif cons_score >= 50: return cons_score, "Solide Form", "#2196F3"
     else: return cons_score, "Wundertüte (Streaky)", "#F44336"
@@ -346,12 +320,10 @@ def run_monte_carlo_tournament(df, target_wins, sims, form_weight):
             if p1 != p2:
                 prob1, _, _, _, _ = calc_matchup_odds(p1, p2, df, form_weight)
                 prob_matrix[p1][p2] = prob1
-
     results = {p: 0 for p in players}
     sweeps = 0
     progress_text = "Universen werden berechnet..."
     my_bar = st.progress(0, text=progress_text)
-    
     for i in range(sims):
         if i % (sims // 10) == 0: my_bar.progress(i / sims, text=progress_text)
         wins = {p: 0 for p in players}
@@ -369,7 +341,6 @@ def run_monte_carlo_tournament(df, target_wins, sims, form_weight):
         sweep_threshold = target_wins * 0.2
         others_scores = [wins[p] for p in players if p != tournament_winner]
         if max(others_scores) <= sweep_threshold: sweeps += 1
-            
     my_bar.empty()
     return results, sweeps
 
@@ -413,12 +384,10 @@ with tab_dbl:
                 winrate = (siege / spiele) * 100
                 net_wins = siege - niederlagen
                 lb_data.append({"Spieler": p[:10], "Spiele": spiele, "Siege": siege, "Niederlagen": niederlagen, "Net-Wins": net_wins, "Winrate (%)": round(winrate, 1)})
-        
         if lb_data:
             df_lb = pd.DataFrame(lb_data).sort_values(by=["Winrate (%)", "Net-Wins"], ascending=[False, False]).reset_index(drop=True)
             df_lb.index = df_lb.index + 1
             st.dataframe(df_lb, use_container_width=True)
-
         st.markdown("---")
         h2h_df, curr_streak, at_streak = get_h2h_stats_data(df_comp)
         col1, col2 = st.columns(2)
@@ -501,9 +470,49 @@ with tab_zeit:
             fig_heat.update_xaxes(dtick=1)
             st.plotly_chart(fig_heat, use_container_width=True)
 
+# --- NEU: SESSION REITER WIEDERHERGESTELLT ---
+with tab_sessions:
+    st.header("🏆 Session Leaderboards")
+    st.markdown("Zusammenhängende Spiel-Sessions (Unterbrechungen von max. 30 Minuten).")
+    
+    if df_comp.empty:
+        st.warning("Keine Datenbasis für Sessions vorhanden.")
+    else:
+        sessions = build_sessions(df_comp)
+        if sessions:
+            selected_s = st.selectbox("Wähle eine Session:", list(sessions.keys()))
+            s_df = sessions[selected_s].copy()
+            s_df['Time'] = s_df['ID'].apply(parse_time)
+            s_df_valid = s_df.dropna(subset=['Time']).sort_values('Time')
+            
+            if not s_df_valid.empty:
+                dur = (s_df_valid['Time'].iloc[-1] + timedelta(minutes=3)) - s_df_valid['Time'].iloc[0]
+                h, r = divmod(dur.total_seconds(), 3600)
+                m, s = divmod(r, 60)
+                dur_str = f"{int(h)}h {int(m)}m {int(s)}s" if h>0 else (f"{int(m)}m {int(s)}s" if m>0 else f"{int(s)}s")
+                st.info(f"⏱️ **Dauer:** {dur_str} | 🎮 **Spiele gespielt:** {len(s_df)}")
+            
+            lb = get_session_leaderboard(s_df)
+            if not lb.empty: 
+                st.dataframe(lb, use_container_width=True)
+                
+                with st.expander("❓ Wie wird das King of the Hill (KotH) Rating berechnet?"):
+                    st.markdown("""
+                    Das **KotH-Rating (0-10)** bewertet, wer die Session dominiert hat. Es ist nicht nur eine einfache Winrate, sondern belohnt auch, wenn jemand *viele* Spiele gemacht hat und *lange* Siegesserien halten konnte.
+                    
+                    **Die Formel (Maximal 10 Punkte):**
+                    *   **Winrate (Max 4.0 Pkt):** Basis-Skillfaktor. Formel: $Winrate \times 4.0$
+                    *   **Dominanz (Max 3.5 Pkt):** Anteil an den maximalen Siegen des besten Spielers. Formel: $\frac{Eigene Siege}{Max Siege aller Spieler} \times 3.5$
+                    *   **Wichtigkeit (Max 2.5 Pkt):** Wie viele Spiele der Session hast du bestritten? Formel: $\frac{Eigene Matches}{Gesamt Matches} \times 2.5$
+                    *   **Streak-Modifikator:** Bonus für Winstreaks, Abzug für Lösestreaks. Formel: $+ (\max Winstreak - 1) \times 0.3 - (\max Lösestreak - 1) \times 0.3$
+                    """)
+        else:
+            st.info("Noch keine vollständigen Sessions registriert.")
+
 with tab_prognose:
-    st.header("Live-Quoten & Historie")
+    st.header("📊 Live-Quoten & Historie")
     st.markdown(f"<div style='color: #888; font-size: 0.9rem; margin-bottom: 20px;'>Letzte Aktualisierung: {latest_match_str}</div>", unsafe_allow_html=True)
+    
     if not df_comp.empty:
         pairs = list(itertools.combinations(TAGS.keys(), 2))
         cols = st.columns(3)
@@ -534,6 +543,24 @@ with tab_prognose:
 <div style='font-size: 0.75rem; color: #888; text-align: center; text-transform: uppercase;'>{insight}</div>
 </div>
 """, unsafe_allow_html=True)
+        
+        with st.expander("❓ Wie werden diese Buchmacher-Quoten berechnet?"):
+            st.markdown("""
+            Die App berechnet für jedes Matchup einen **Power-Score** für beide Spieler, der sich aus drei historischen Faktoren zusammensetzt. Je mehr "Punkte" (Score) ein Spieler sammelt, desto höher seine Siegwahrscheinlichkeit.
+            
+            **1. Der Score:**
+            Jeder Spieler startet mit 100 Basis-Punkten. Darauf werden addiert:
+            *   **H2H-Bonus:** Historische Winrate gegen diesen spezifischen Gegner. (z.B. 60% WR bringt +15 Punkte). Formel: $1.5 \times (H2H_{WR} - 50)$
+            *   **Formkurve:** Die Net-Wins (Siege minus Niederlagen) aus den letzten 15 Spielen insgesamt. Jeder Net-Win gibt +2 Punkte.
+            *   **Momentum:** Eine aktive Siegesserie (Streak) bringt fette Punkte. Formel: $+4 \times Streak$. (Verliert man gerade in Serie, gibt es Minus-Punkte).
+            
+            **2. Die Wahrscheinlichkeit:**
+            Die Wahrscheinlichkeit berechnet sich aus dem Anteil am Gesamt-Score beider Spieler:
+            $Prob_{A} = \frac{Score_A}{Score_A + Score_B}$
+            
+            **3. Die Quote:**
+            Buchmacher-Quote = $1 / Wahrscheinlichkeit$. (Eine 50% Chance entspricht einer Quote von 2.00).
+            """)
         
         st.subheader("Letzte 5 globale Matches")
         last_5_df = df_comp.sort_values(by='ID', ascending=False).head(5)
@@ -578,6 +605,19 @@ with tab_analyse:
             fig_pi.update_layout(height=250, margin=dict(l=20, r=20, t=40, b=20), paper_bgcolor="#0E1117", font={'color': "#FFF"})
             cols_pi[idx].plotly_chart(fig_pi, use_container_width=True)
 
+        with st.expander("❓ Was bedeutet der Power-Index?"):
+            st.markdown("""
+            Der Power-Index (PI) ist ein Tacho für die **aktuelle Hitze** eines Spielers. Er ignoriert die All-Time Stats und schaut nur auf die allerjüngste Vergangenheit.
+            
+            Jeder Spieler ruht bei einem neutralen Wert von 50.
+            *   **Form (letzte 15 Spiele):** Hast du mehr Siege als Niederlagen (Net-Wins), steigt der Index. $NetWins \times 2.5$
+            *   **Momentum:** Eine aktive Winstreak drückt den Tacho massiv nach oben. $Streak \times 5.0$
+            
+            **Die Formel:**
+            $PI = \max(0, \min(100, 50 + 2.5 \times NetWins + 5.0 \times Streak))$
+            *(Werte über 60 sind extrem gut, Werte unter 40 zeigen einen Tilt).*
+            """)
+
         st.markdown("---")
         st.subheader("H2H Dominanz-Matrix")
         matrix_data = []
@@ -597,6 +637,15 @@ with tab_analyse:
         fig_heat = px.imshow(matrix_data, x=players, y=players, text_auto=".0f", color_continuous_scale=[[0, "#F44336"], [0.5, "#222"], [1, "#4CAF50"]], zmin=0, zmax=100)
         fig_heat.update_layout(paper_bgcolor="#0E1117", plot_bgcolor="#0E1117", font={'color': "#FFF"})
         st.plotly_chart(fig_heat, use_container_width=True)
+        
+        with st.expander("❓ Wie lese ich die Dominanz-Matrix?"):
+            st.markdown("""
+            Die Matrix ist ein Schere-Stein-Papier Check. Sie zeigt die **pure historische Winrate** von Spieler A gegen Spieler B in Prozent.
+            *   **Lese-Richtung:** Lies von der Y-Achse (Links) zur X-Achse (Unten). 
+            *   *Beispiel:* Wenn links "resan" steht und du gehst rüber zur Spalte "Jörg", dann zeigt die Zahl, zu wie viel Prozent resan historisch gegen Jörg gewinnt.
+            *   **Grün:** Du dominierst den Gegner (>50%).
+            *   **Rot:** Er ist dein Angstgegner (<50%).
+            """)
 
         st.markdown("---")
         st.subheader("Matchup Deep-Dive")
@@ -627,6 +676,16 @@ with tab_analyse:
                 fig_rad.add_trace(go.Scatterpolar(r=get_player_stats_for_radar(sel_p2, sel_p1, df_comp), theta=cat, fill='toself', name=sel_p2, line_color='#2196F3'))
                 fig_rad.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100], color="#555"), bgcolor="#121212"), paper_bgcolor="#0E1117", font={'color': "#FFF"}, margin=dict(t=30, b=30, l=30, r=30))
                 st.plotly_chart(fig_rad, use_container_width=True)
+                
+                with st.expander("❓ Wie normalisiert das Radar diese Werte auf 0-100?"):
+                    st.markdown("""
+                    Um Äpfel mit Birnen vergleichen zu können (z.B. Winrate vs. Kronen), werden alle Werte auf eine Skala von 0 bis 100 umgerechnet:
+                    *   **H2H Winrate & Globale Winrate:** Werden direkt als 0-100% übernommen.
+                    *   **Aktuelle Form:** Net-Wins der letzten 15 Spiele (Maximum ist +15, Minimum -15). Formel: $\frac{NetWins + 15}{30} \times 100$
+                    *   **Momentum:** Winstreak (Max gedeckelt bei 5). Formel: $\frac{Streak + 5}{10} \times 100$
+                    *   **Offensiv-Power:** Durchschnittlich geholte Kronen pro Spiel gegen diesen Gegner (Max. 3.0). Formel: $\frac{AvgCrowns}{3.0} \times 100$
+                    """)
+                    
             with col_line:
                 st.markdown("**Quoten-Verlauf**")
                 if len(direct_df) >= 3:
@@ -715,7 +774,7 @@ with tab_dna:
         
         # --- TEIL 1: KONSISTENZ-INDEX ---
         st.subheader("Glicko Konsistenz-Index (Volatilität)")
-        st.markdown("<span style='color:#888; font-size:0.85rem;'>Misst die Abhängigkeit von Siegesserien. Ein hoher Score bedeutet, der Spieler liefert immer verlässlich ab. Ein niedriger Score bedeutet, er hat extreme 'Ups and Downs' (Wundertüte).</span>", unsafe_allow_html=True)
+        st.markdown("<span style='color:#888; font-size:0.85rem;'>Misst die Verlässlichkeit und Nervenstärke eines Spielers.</span>", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
         
         for p in TAGS.keys():
@@ -735,11 +794,26 @@ with tab_dna:
 </div>
 """, unsafe_allow_html=True)
 
+        with st.expander("❓ Wie wird die Konsistenz (Wundertüte vs. Maschine) berechnet?"):
+            st.markdown("""
+            Der Score misst die **Volatilität** – also wie extrem die Leistung schwankt.
+            
+            Ein Spieler, der exakt 50% Winrate hat, kann diese auf zwei Arten erreichen:
+            1.  **Die Maschine:** Sieg, Niederlage, Sieg, Niederlage. (Er ist konstant, man weiß was man bekommt).
+            2.  **Die Wundertüte:** 10 Siege in Folge, danach 10 Niederlagen am Stück in einem Tilt. (Er ist extrem unberechenbar).
+            
+            **Die Formel:**
+            Wir zählen die Länge jeder einzelnen "Serie" (egal ob Sieg- oder Niederlagenserie) und berechnen den Durchschnitt ($\overline{Streak}$).
+            $Konsistenz = 100 - ((\overline{Streak} - 1) \times 25)$
+            
+            *Wenn deine durchschnittliche Serie sehr kurz ist, bleibt der Score hoch (nah an 100). Hast du oft extrem lange Serien (z.B. Durchschnitt 4.0), bricht der Score zusammen.*
+            """)
+
         st.markdown("---")
         
         # --- TEIL 2: DECK SYNERGIEN ---
         st.subheader("Deck-Synergien (Deadly Duos)")
-        st.markdown("<span style='color:#888; font-size:0.85rem;'>Welche 2-Karten-Kombinationen sorgen für die höchste Sieg-Wahrscheinlichkeit? (Min. 3 Einsätze)</span>", unsafe_allow_html=True)
+        st.markdown("<span style='color:#888; font-size:0.85rem;'>Welche 2-Karten-Kombinationen im selben Deck sind für diesen Spieler am tödlichsten?</span>", unsafe_allow_html=True)
         
         sel_player = st.selectbox("Wähle einen Spieler:", list(TAGS.keys()), key="dna_player")
         synergy_df = get_top_synergies(sel_player, df_comp)
@@ -751,10 +825,19 @@ with tab_dna:
             with col_s1:
                 st.dataframe(synergy_df.reset_index(drop=True), use_container_width=True)
             with col_s2:
-                # Schneller Bar-Chart für die Winrates der Duos
-                # Da die Siegquote im DF ein String ist (z.B. "75.0%"), konvertieren wir kurz für den Chart
                 plot_df = synergy_df.copy()
                 plot_df['WR_Float'] = plot_df['Sieg-Quote (%)'].str.replace('%', '').astype(float)
                 fig_syn = px.bar(plot_df, x='WR_Float', y='Karten-Duo', orientation='h', text='Sieg-Quote (%)', color='Spiele', color_continuous_scale="Viridis", title=f"Tödlichste Duos von {sel_player}")
-                fig_syn.update_layout(yaxis={'categoryorder':'total ascending'}, paper_bgcolor="#0E1117", plot_bgcolor="#121212", font={'color': "#FFF"})
+                fig_syn.update_layout(yaxis={'categoryorder':'total ascending'}, paper_bgcolor="#0E1117", plot_bgcolor="#121212", font={'color': "#FFF"}, xaxis_title="Sieg-Wahrscheinlichkeit (%)")
                 st.plotly_chart(fig_syn, use_container_width=True)
+
+        with st.expander("❓ Wie findet der Algorithmus diese 'Synergien'?"):
+            st.markdown("""
+            Normale Analysen schauen nur darauf, ob du z.B. mit dem "Ritter" oft gewinnst. Aber Profis gewinnen durch das Zusammenspiel von Karten.
+            
+            **Die Logik dahinter:**
+            1.  Der Bot nimmt jedes Spiel, das du gespielt hast.
+            2.  Er spaltet dein 8-Karten Deck auf in **alle möglichen 2er-Kombinationen** (insgesamt 28 Kombinationen pro Deck).
+            3.  Er vergleicht über hunderte Spiele hinweg, welches Karten-Pärchen (z.B. "Ritter + Koboldfass") am häufigsten in Decks auftaucht, die letztendlich auch **gewonnen** haben.
+            4.  Um Zufälle auszuschließen, zeigt das System nur Duos, die du mindestens 3 Mal zusammen gespielt hast.
+            """)
