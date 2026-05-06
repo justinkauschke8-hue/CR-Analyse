@@ -269,6 +269,12 @@ except: df_fun = pd.DataFrame()
 # Sidebar
 st.sidebar.title("🎮 Clash Analyzer Pro")
 st.sidebar.markdown("---")
+st.sidebar.subheader("🛠️ Debug Info (System-Röntgen)")
+st.sidebar.write(f"Gefundene Spiele in DB: {len(df_comp)}")
+st.sidebar.write(f"Eingestellte Such-Namen: {list(TAGS.keys())}")
+if not df_comp.empty:
+    st.sidebar.write("Echte Namen in der Datenbank:")
+    st.sidebar.write(df_comp['Spieler1'].unique())
 if st.sidebar.button("🔄 Livedaten Synchronisieren", use_container_width=True, type="primary"):
     with st.spinner("Frage Supercell-Server ab..."):
         c, f = scan_for_battles()
