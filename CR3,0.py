@@ -175,7 +175,6 @@ def calc_matchup_odds(p1, p2, df, form_weight=1.0):
     f1, s1 = get_player_form_and_streak(p1, df)
     f2, s2 = get_player_form_and_streak(p2, df)
     
-    # Form Weighting applied for Monte Carlo
     score_p1 = max(10, 100 + h2h_bonus_p1 + ((f1 * 2) * form_weight) + ((s1 * 4) * form_weight))
     score_p2 = max(10, 100 + h2h_bonus_p2 + ((f2 * 2) * form_weight) + ((s2 * 4) * form_weight))
     
@@ -195,6 +194,69 @@ def calc_matchup_odds(p1, p2, df, form_weight=1.0):
     elif p2_h2h_wr >= 70: insight = f"H2H-Dominanz {p2[:6]} ({p2_h2h_wr:.0f}%)"
     
     return prob_1, prob_2, odds_1, odds_2, insight
+
+# --- SESSION LOGIK ---
+def build_sessions(df):
+    if df.empty: return {}
+    df = df.copy()
+    df['Time'] = df['ID'].apply(parse_time)
+    df_valid = df.dropna(subset=['Time']).sort_values('Time').copy()
+    if df_valid.empty: return {}
+    df_valid['Time_Diff'] = df_valid['Time'].diff()
+    df_valid['Session_Num'] = (df_valid['Time_Diff'] > pd.Timedelta(minutes=30)).cumsum()
+    sessions = {}
+    for s_num, group in df_valid.groupby('Session_Num'):
+        if len(group) < 2: continue 
+        start_time = group['Time'].iloc[0].strftime("%d.%m.%Y - %H:%M")
+        s_name = f"{start_time} ({len(group)} Spiele)"
+        sessions[s_name] = group
+    return dict(reversed(list(sessions.items())))
+
+def get_session_leaderboard(session_df):
+    total_games = len(session_df)
+    stats = {p: {"P": 0, "W": 0, "L": 0, "curr_streak": 0, "is_win": None, "max_w_streak": 0, "max_l_streak": 0} for p in TAGS.keys()}
+    for _, row in session_df.iterrows():
+        p1, p2 = row['Spieler1'], row['Spieler2']
+        if p1 in stats and p2 in stats:
+            p1_won = row['Score1'] > row['Score2']
+            stats[p1]["P"] += 1; stats[p2]["P"] += 1
+            if p1_won:
+                stats[p1]["W"] += 1; stats[p2]["L"] += 1
+                if stats[p1]["is_win"] == True: stats[p1]["curr_streak"] += 1
+                else: stats[p1]["is_win"] = True; stats[p1]["curr_streak"] = 1
+                stats[p1]["max_w_streak"] = max(stats[p1]["max_w_streak"], stats[p1]["curr_streak"])
+                if stats[p2]["is_win"] == False: stats[p2]["curr_streak"] += 1
+                else: stats[p2]["is_win"] = False; stats[p2]["curr_streak"] = 1
+                stats[p2]["max_l_streak"] = max(stats[p2]["max_l_streak"], stats[p2]["curr_streak"])
+            else:
+                stats[p2]["W"] += 1; stats[p1]["L"] += 1
+                if stats[p2]["is_win"] == True: stats[p2]["curr_streak"] += 1
+                else: stats[p2]["is_win"] = True; stats[p2]["curr_streak"] = 1
+                stats[p2]["max_w_streak"] = max(stats[p2]["max_w_streak"], stats[p2]["curr_streak"])
+                if stats[p1]["is_win"] == False: stats[p1]["curr_streak"] += 1
+                else: stats[p1]["is_win"] = False; stats[p1]["curr_streak"] = 1
+                stats[p1]["max_l_streak"] = max(stats[p1]["max_l_streak"], stats[p1]["curr_streak"])
+
+    max_wins = max([data["W"] for data in stats.values()]) if stats else 0
+    leaderboard = []
+    for p, data in stats.items():
+        if data["P"] == 0: continue
+        wr = data["W"] / data["P"]
+        score_wr = wr * 4.0
+        score_dom = (data["W"] / max_wins * 3.5) if max_wins > 0 else 0
+        score_imp = (data["P"] / total_games * 2.5) if total_games > 0 else 0
+        max_w_s = max(1, data["max_w_streak"]) if data["W"] > 0 else 1
+        max_l_s = max(1, data["max_l_streak"]) if data["L"] > 0 else 1
+        streak_mod = ((max_w_s - 1) * 0.3) - ((max_l_s - 1) * 0.3)
+        final_rating = max(0.0, min(10.0, score_wr + score_dom + score_imp + streak_mod))
+        leaderboard.append({
+            "Spieler": p[:10], "Matches": data["P"], "Wins": data["W"], "Losses": data["L"], 
+            "WR": f"{wr*100:.0f}%", "Streaks": f"+{data['max_w_streak']} / -{data['max_l_streak']}", "Rating": round(final_rating, 1)
+        })
+    if not leaderboard: return pd.DataFrame()
+    df_lb = pd.DataFrame(leaderboard).sort_values(by="Rating", ascending=False).reset_index(drop=True)
+    df_lb.index = df_lb.index + 1
+    return df_lb
 
 # --- ANALYSE HELPER ---
 def get_power_index(player, df):
@@ -224,7 +286,6 @@ def run_monte_carlo_tournament(df, target_wins, sims, form_weight):
     players = list(TAGS.keys())
     if len(players) < 2: return {}
     
-    # Pre-calculate base probabilities to save time in the loop
     prob_matrix = {}
     for p1 in players:
         prob_matrix[p1] = {}
@@ -235,23 +296,17 @@ def run_monte_carlo_tournament(df, target_wins, sims, form_weight):
 
     results = {p: 0 for p in players}
     sweeps = 0
-    
-    # Progress Bar UI
-    progress_text = "Simuliere Universen..."
+    progress_text = "Universen werden berechnet..."
     my_bar = st.progress(0, text=progress_text)
     
     for i in range(sims):
-        # Update progress bar every 10%
         if i % (sims // 10) == 0: my_bar.progress(i / sims, text=progress_text)
-            
         wins = {p: 0 for p in players}
         tournament_winner = None
         
         while not tournament_winner:
             p1, p2 = random.sample(players, 2)
             prob_p1_wins = prob_matrix[p1][p2]
-            
-            # Roll the dice
             if random.random() < prob_p1_wins:
                 wins[p1] += 1
                 if wins[p1] == target_wins: tournament_winner = p1
@@ -260,8 +315,6 @@ def run_monte_carlo_tournament(df, target_wins, sims, form_weight):
                 if wins[p2] == target_wins: tournament_winner = p2
                 
         results[tournament_winner] += 1
-        
-        # Check if it was a sweep (winner reached target, others have less than 20% of target)
         sweep_threshold = target_wins * 0.2
         others_scores = [wins[p] for p in players if p != tournament_winner]
         if max(others_scores) <= sweep_threshold:
@@ -269,6 +322,14 @@ def run_monte_carlo_tournament(df, target_wins, sims, form_weight):
             
     my_bar.empty()
     return results, sweeps
+
+# --- SESSION STATE INITIALISIERUNG FÜR MONTE CARLO ---
+# Damit das Ergebnis beim Wechseln der Diagramme nicht verschwindet!
+if 'mc_results' not in st.session_state:
+    st.session_state['mc_results'] = None
+    st.session_state['mc_sweeps'] = 0
+    st.session_state['mc_sims'] = 0
+    st.session_state['mc_target'] = 0
 
 # --- UI & LAYOUT ---
 df_comp = get_df_from_sheet(ws_comp)
@@ -531,39 +592,116 @@ with tab_analyse:
                     st.plotly_chart(fig_trend, use_container_width=True)
 
 with tab_mc:
-    st.header("🎲 Monte Carlo Engine")
-    st.markdown("Simuliert zehntausende Turnier-Verläufe in der Zukunft auf Basis eurer Live-Daten und Quoten.")
+    st.header("🎲 Der Turnier-Simulator (Monte Carlo)")
     
+    with st.expander("❓ Wie funktioniert das und was sehe ich hier? (Hier klicken)"):
+        st.markdown("""
+        **Stell dir vor, Doctor Strange schaut sich 10.000 mögliche Zukünfte an.**
+        Genau das macht dieser Simulator. Wir sagen dem Computer nicht: "Wer gewinnt das nächste Match?", sondern wir sagen: 
+        *"Lass die Jungs jetzt ein Turnier spielen, wer zuerst X Siege hat, ist der Champion."*
+        
+        Der Computer würfelt dann jedes einzelne Match im Hintergrund aus. Aber er würfelt nicht fair (50/50), sondern er nutzt eure echten Winrates, eure Form und das Momentum. 
+        Macht er das 10.000 Mal, wissen wir mathematisch exakt, wer von euch aktuell die besten Karten für einen Gesamtsieg hat.
+        """)
+
     if df_comp.empty:
         st.warning("Keine Datenbasis für Simulationen.")
     else:
-        # Konfiguration
+        st.markdown("### ⚙️ Die Spielregeln (Parameter)")
         col_c1, col_c2, col_c3 = st.columns(3)
-        sim_count = col_c1.select_slider("Anzahl Simulationen (Universen):", options=[100, 1000, 5000, 10000, 50000], value=10000)
-        target_w = col_c2.slider("Turnier-Ziel (Race to X Wins):", min_value=3, max_value=200, value=50, step=1)
-        fw = col_c3.slider("Gewichtung der aktuellen Form:", min_value=0.0, max_value=2.0, value=1.0, step=0.1, help="1.0 = Normal. 0.0 = Aktuelle Form ignorieren, nur ewiges H2H zählt. 2.0 = Momentum ist alles.")
         
-        if st.button("🚀 Starte Quanten-Simulation", type="primary", use_container_width=True):
+        sim_count = col_c1.select_slider(
+            "🔮 Wie oft soll in die Zukunft geblickt werden?", 
+            options=[100, 1000, 5000, 10000, 50000], value=10000,
+            help="100 geht extrem schnell, 10.000 ist mathematisch viel genauer."
+        )
+        
+        target_w = col_c2.slider(
+            "🏁 Wie viele Siege braucht man für den Turniersieg?", 
+            min_value=3, max_value=200, value=50, step=1,
+            help="Wer zuerst diese Anzahl an Siegen erreicht, gewinnt das Turnier."
+        )
+        
+        fw = col_c3.slider(
+            "🔥 Wie stark zählt die heutige Tagesform?", 
+            min_value=0.0, max_value=2.0, value=1.0, step=0.1, 
+            help="0.0 = Die Tagesform ist egal, nur historische All-Time-Stats zählen. \n1.0 = Normaler Mix. \n2.0 = Wer gerade eine Glückssträhne hat, dominiert die Simulation."
+        )
+        
+        if st.button("🚀 Turnier-Simulation jetzt starten", type="primary", use_container_width=True):
             res_dict, total_sweeps = run_monte_carlo_tournament(df_comp, target_w, sim_count, fw)
+            # Wir speichern das Ergebnis im "Gedächtnis" der App
+            st.session_state['mc_results'] = res_dict
+            st.session_state['mc_sweeps'] = total_sweeps
+            st.session_state['mc_sims'] = sim_count
+            st.session_state['mc_target'] = target_w
             
-            st.markdown("---")
-            st.subheader(f"Ergebnis aus {sim_count:,} simulierten Turnieren".replace(',', '.'))
+        st.markdown("---")
+        
+        # Nur anzeigen, wenn schon einmal auf den Button geklickt wurde!
+        if st.session_state['mc_results']:
+            res_dict = st.session_state['mc_results']
+            sims_done = st.session_state['mc_sims']
             
-            # Daten für Chart aufbereiten
+            # Daten für die Charts aufbereiten
             res_df = pd.DataFrame(list(res_dict.items()), columns=['Spieler', 'Turniersiege'])
-            res_df['Wahrscheinlichkeit'] = (res_df['Turniersiege'] / sim_count) * 100
+            res_df['Wahrscheinlichkeit'] = (res_df['Turniersiege'] / sims_done) * 100
             res_df = res_df.sort_values(by='Turniersiege', ascending=False)
+            
+            st.subheader(f"Die Ergebnisse aus {sims_done:,} simulierten Turnieren".replace(',', '.'))
+            
+            # Dropdown für die 4 verschiedenen Ansichten
+            vis_choice = st.selectbox(
+                "👁️ Wie möchtest du das Ergebnis sehen?", 
+                ["1. Klassisches Podest (Balkendiagramm)", "2. Kuchen-Verteilung (Kreisdiagramm)", "3. Wahrscheinlichkeits-Tacho", "4. Harte Fakten (Zahlen)"]
+            )
             
             col_chart, col_stats = st.columns([2, 1])
             
             with col_chart:
-                fig_mc = px.bar(res_df, x='Spieler', y='Wahrscheinlichkeit', text_auto='.1f', color='Spieler', title=f"Chance auf {target_w} Siege")
-                fig_mc.update_traces(textposition='outside')
-                fig_mc.update_layout(yaxis=dict(title='Wahrscheinlichkeit (%)', range=[0, 100]), showlegend=False, paper_bgcolor="#0E1117", plot_bgcolor="#121212", font={'color': "#FFF"})
-                st.plotly_chart(fig_mc, use_container_width=True)
+                # 1. BALKENDIAGRAMM
+                if "Podest" in vis_choice:
+                    fig_mc = px.bar(res_df, x='Spieler', y='Wahrscheinlichkeit', text_auto='.1f', color='Spieler', title=f"Chance auf den Turniersieg")
+                    fig_mc.update_traces(textposition='outside')
+                    fig_mc.update_layout(yaxis=dict(title='Wahrscheinlichkeit (%)', range=[0, 100]), showlegend=False, paper_bgcolor="#0E1117", plot_bgcolor="#121212", font={'color': "#FFF"})
+                    st.plotly_chart(fig_mc, use_container_width=True)
                 
+                # 2. KREISDIAGRAMM (PIE)
+                elif "Kuchen" in vis_choice:
+                    fig_pie = px.pie(res_df, names='Spieler', values='Wahrscheinlichkeit', hole=0.4, title="Anteile an den Turniersiegen", color='Spieler')
+                    fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+                    fig_pie.update_layout(paper_bgcolor="#0E1117", font={'color': "#FFF"}, showlegend=False)
+                    st.plotly_chart(fig_pie, use_container_width=True)
+                
+                # 3. TACHOS (GAUGE)
+                elif "Tacho" in vis_choice:
+                    st.markdown("**Sieg-Wahrscheinlichkeit pro Spieler**")
+                    tacho_cols = st.columns(3)
+                    for i, (index, row) in enumerate(res_df.iterrows()):
+                        val = row['Wahrscheinlichkeit']
+                        fig_gauge = go.Figure(go.Indicator(
+                            mode="gauge+number", value=val, number={'suffix': "%"}, title={'text': row['Spieler'], 'font': {'size': 16, 'color': '#FFF'}},
+                            gauge={'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "#444"}, 'bar': {'color': "#2196F3"}, 'bgcolor': "#121212", 'borderwidth': 0}
+                        ))
+                        fig_gauge.update_layout(height=200, margin=dict(l=10, r=10, t=30, b=10), paper_bgcolor="#0E1117", font={'color': "#FFF"})
+                        tacho_cols[i % 3].plotly_chart(fig_gauge, use_container_width=True)
+                
+                # 4. HARTE FAKTEN (ZAHLEN)
+                elif "Fakten" in vis_choice:
+                    st.markdown("**Exakte Turniersiege (Absolute Zahlen)**")
+                    f_cols = st.columns(3)
+                    for i, (index, row) in enumerate(res_df.iterrows()):
+                        f_cols[i % 3].metric(label=row['Spieler'], value=f"{row['Turniersiege']:,}".replace(',', '.'), delta=f"{row['Wahrscheinlichkeit']:.1f}% Winrate", delta_color="normal")
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    st.dataframe(res_df.reset_index(drop=True), use_container_width=True)
+
             with col_stats:
                 st.markdown("<br><br>", unsafe_allow_html=True)
-                st.info(f"🏆 **Wahrscheinlichster Sieger:**<br>{res_df.iloc[0]['Spieler']} ({res_df.iloc[0]['Wahrscheinlichkeit']:.1f}%)")
-                st.warning(f"🧹 **Dominanz-Quote (Sweeps):**<br>{(total_sweeps/sim_count)*100:.1f}%<br><span style='font-size:0.75rem;'>(Turniere, in denen der Sieger alle anderen vernichtet hat)</span>")
-                st.success(f"🎲 **Varianz:**<br>Bei einem Ziel von {target_w} Siegen spielt Glück {'eine sehr große' if target_w < 10 else ('eine spürbare' if target_w < 30 else 'fast keine')} Rolle mehr.")
+                target = st.session_state['mc_target']
+                sweeps = st.session_state['mc_sweeps']
+                
+                st.info(f"🏆 **Der Favorit:**<br>Wenn ihr jetzt startet, gewinnt zu {res_df.iloc[0]['Wahrscheinlichkeit']:.1f}% **{res_df.iloc[0]['Spieler']}** das Turnier.")
+                
+                st.warning(f"🧹 **Die Vernichtungs-Quote:**<br>{(sweeps/sims_done)*100:.1f}%<br><span style='font-size:0.75rem;'>(In so vielen Turnieren hat der Sieger alle anderen komplett deklassiert, bevor sie auch nur 20% des Ziels erreichten)</span>")
+                
+                st.success(f"🎲 **Der Glücksfaktor:**<br>Bei einem Ziel von {target} Siegen spielt Glück {'eine sehr große' if target < 10 else ('eine spürbare' if target < 30 else 'fast keine')} Rolle mehr.")
