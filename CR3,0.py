@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import requests
 import itertools
 from datetime import datetime, timedelta
 import plotly.express as px
@@ -11,7 +12,7 @@ import random
 from google.oauth2.service_account import Credentials
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="Clash Analyzer Pro", layout="wide")
+st.set_page_config(page_title="Clash Analyzer Pro", layout="wide", page_icon="📊")
 
 # --- KONFIGURATION & HARDCODED TAGS ---
 TAGS = {
@@ -20,8 +21,10 @@ TAGS = {
     "Jörg": "YY89R9L9G"
 }
 
-# WICHTIG: Füge hier den echten Link aus der Browser-Leiste ein (https://docs...)
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1SZQhK7TeBRI6DspxVJWU31ul_PGTXNOoxcOwE6rn2u8/edit?gid=641247476#gid=641247476"
+# WICHTIG: Füge hier den echten Link aus der Browser-Leiste ein
+SHEET_URL = "HIER_DEN_LINK_ZU_DEINER_GOOGLE_TABELLE_EINFÜGEN"
+
+API_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjhjMzk2MDM1LTgyMzMtNGFhMi04YzVjLTg3NjVmZDliYjE0MSIsImlhdCI6MTc3Nzk4NDU2Niwic3ViIjoiZGV2ZWxvcGVyL2MyYjczNjYyLWE2YjYtNzdkMC00N2I4LTM5YjE0MWYyNzcxOCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyI5Mi4yMDguMjUuMTIiXSwidHlwZSI6ImNsaWVudCJ9XX0.LG_Q_jELSrMoeRPVVU5saPFnNWBrGbzaaaXtl_4HvKEMd-jDBBldJUpLZXQJ2101_tGsxgQ-3bU5tejtmY3wQg"
 
 # --- GOOGLE SHEETS SETUP ---
 @st.cache_resource
@@ -35,7 +38,7 @@ def init_google_sheets():
         sheet.worksheet("Karten_Data"), 
         sheet.worksheet("Fun_Data"), 
         sheet.worksheet("Profile_Data"),
-        sheet.worksheet("Global_Data") # NEU
+        sheet.worksheet("Global_Data")
     )
 
 try:
@@ -126,10 +129,18 @@ def calc_nemesis_kryptonit(df):
         krypt = max(krypt_cards.items(), key=lambda x: x[1], default=("Keine", 0))
         if nemesis[0]:
             n_wr = (nemesis[1][1]/nemesis[1][0]*100) if nemesis[1][0]>0 else 0
-            nemesis_data.append({"Spieler": p[:10], "Nemesis": f"{nemesis[0]} ({n_wr:.0f}%)", "Kryptonit-Karte": f"{krypt[0]} ({krypt[1]}x verloren)"})
+            nemesis_data.append({"Spieler": p[:10], "Angstgegner": f"{nemesis[0]} ({n_wr:.0f}%)", "Kryptonit-Karte": f"{krypt[0]} ({krypt[1]}x verloren)"})
     return pd.DataFrame(nemesis_data)
 
-# --- ALGORITHMUS FÜR BUCHMACHER QUOTEN ---
+@st.cache_data(ttl=60)
+def get_api_data(endpoint, tag):
+    url = f"https://api.clashroyale.com/v1/players/%23{tag}/{endpoint}" if endpoint else f"https://api.clashroyale.com/v1/players/%23{tag}"
+    headers = {"Authorization": f"Bearer {API_KEY}"}
+    try:
+        res = requests.get(url, headers=headers, timeout=5)
+        return res.json() if res.status_code == 200 else None
+    except: return None
+
 def get_player_form_and_streak(player, df):
     p_df = df[(df['Spieler1'] == player) | (df['Spieler2'] == player)].sort_values('ID').tail(15)
     if p_df.empty: return 0, 0
@@ -180,7 +191,6 @@ def calc_matchup_odds(p1, p2, df, form_weight=1.0):
     
     return prob_1, prob_2, odds_1, odds_2, insight
 
-# --- SESSION LOGIK ---
 def build_sessions(df):
     if df.empty: return {}
     df = df.copy()
@@ -221,7 +231,6 @@ def get_session_leaderboard(session_df):
                 if stats[p1]["is_win"] == False: stats[p1]["curr_streak"] += 1
                 else: stats[p1]["is_win"] = False; stats[p1]["curr_streak"] = 1
                 stats[p1]["max_l_streak"] = max(stats[p1]["max_l_streak"], stats[p1]["curr_streak"])
-
     max_wins = max([data["W"] for data in stats.values()]) if stats else 0
     leaderboard = []
     for p, data in stats.items():
@@ -243,7 +252,6 @@ def get_session_leaderboard(session_df):
     df_lb.index = df_lb.index + 1
     return df_lb
 
-# --- ANALYSE HELPER (RADAR & POWER) ---
 def get_power_index(player, df):
     f, s = get_player_form_and_streak(player, df)
     pi = 50 + (f * 2.5) + (s * 5.0)
@@ -266,7 +274,6 @@ def get_player_stats_for_radar(player, opponent, df):
     global_wr = (g_wins / len(p_df) * 100) if len(p_df) > 0 else 50
     return [h2h_wr, form_norm, momentum_norm, offense_norm, global_wr]
 
-# --- DNA HELPER (SYNERGIEN & KONSISTENZ) ---
 def get_top_synergies(player, df):
     p_df = df[(df['Spieler1'] == player) | (df['Spieler2'] == player)]
     synergy_stats = {}
@@ -311,7 +318,6 @@ def get_consistency_score(player, df):
     elif cons_score >= 50: return cons_score, "Solide Form", "#2196F3"
     else: return cons_score, "Wundertüte (Streaky)", "#F44336"
 
-# --- MONTE CARLO ENGINE ---
 def run_monte_carlo_tournament(df, target_wins, sims, form_weight):
     players = list(TAGS.keys())
     if len(players) < 2: return {}
@@ -324,7 +330,7 @@ def run_monte_carlo_tournament(df, target_wins, sims, form_weight):
                 prob_matrix[p1][p2] = prob1
     results = {p: 0 for p in players}
     sweeps = 0
-    progress_text = "Universen werden berechnet..."
+    progress_text = "Simuliere Universen..."
     my_bar = st.progress(0, text=progress_text)
     for i in range(sims):
         if i % (sims // 10) == 0: my_bar.progress(i / sims, text=progress_text)
@@ -352,17 +358,18 @@ if 'mc_results' not in st.session_state:
     st.session_state['mc_sims'] = 0
     st.session_state['mc_target'] = 0
 
-# --- UI & LAYOUT ---
+# --- LADE DATEN ---
 df_comp = get_df_from_sheet(ws_comp)
 df_fun = get_df_from_sheet(ws_fun)
 df_prof = get_df_from_sheet(ws_prof)
-df_global = get_df_from_sheet(ws_global) # Lade das globale Archiv
+df_global = get_df_from_sheet(ws_global)
 
 latest_match_str = "Keine Daten"
 if not df_comp.empty:
     times = df_comp['ID'].apply(parse_time).dropna()
     if not times.empty: latest_match_str = times.max().strftime('%d.%m.%Y - %H:%M')
 
+# --- SIDEBAR ---
 st.sidebar.title("Clash Analyzer Pro")
 st.sidebar.markdown("---")
 st.sidebar.write("**System-Status**")
@@ -371,12 +378,15 @@ st.sidebar.write(f"Datensätze (Global): {len(df_global)}")
 st.sidebar.write(f"Letztes Match: {latest_match_str}")
 st.sidebar.markdown("---")
 
-tab_dbl, tab_spieler, tab_spieler_details, tab_dbf, tab_nemesis, tab_trends, tab_zeit, tab_sessions, tab_prognose, tab_analyse, tab_mc, tab_dna = st.tabs([
-    "1v1", "Spieler", "Spieler-Details", "Fun", "Nemesis", "Trends", "Heatmap", "Sessions", "Prognose", "Analyse", "Monte Carlo", "Profil-DNA"
+# --- KONSOLIDIERTE TABS ---
+tab_dbl, tab_spieler_loc, tab_spieler_glob, tab_dbf, tab_trends, tab_sessions, tab_prognose, tab_analyse, tab_dna, tab_mc = st.tabs([
+    "1v1 Liga", "Spieler (Lokal)", "Spieler (Global)", "Fun Matches", "Aktivität & Trends", "Sessions", "Prognose", "Match-Analyse", "Profil-DNA", "Monte Carlo"
 ])
 
+# --- TAB 1: 1v1 LIGA ---
 with tab_dbl:
-    st.header("1v1 Leaderboard")
+    st.header("Offizielles 1v1 Leaderboard")
+    st.markdown("<div style='color:#888; font-size:13px; margin-top:-10px; margin-bottom:20px;'>Tabelle aller gewerteten internen Matches. Sortiert nach Winrate und Net-Wins.</div>", unsafe_allow_html=True)
     if not df_comp.empty:
         lb_data = []
         for p in TAGS.keys():
@@ -392,8 +402,13 @@ with tab_dbl:
             df_lb = pd.DataFrame(lb_data).sort_values(by=["Winrate (%)", "Net-Wins"], ascending=[False, False]).reset_index(drop=True)
             df_lb.index = df_lb.index + 1
             st.dataframe(df_lb, use_container_width=True)
+            st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px;'>Net-Wins: Absolute Differenz zwischen Siegen und Niederlagen. Indikator für echten Fortschritt.</div>", unsafe_allow_html=True)
+
         st.markdown("---")
         h2h_df, curr_streak, at_streak = get_h2h_stats_data(df_comp)
+        
+        st.subheader("Head-to-Head Historie")
+        st.markdown("<div style='color:#888; font-size:13px; margin-top:-10px; margin-bottom:10px;'>Direkter Vergleich aller Begegnungen. Wer dominiert wen?</div>", unsafe_allow_html=True)
         col1, col2 = st.columns(2)
         col1.metric("Aktuelle Winstreak", f"{curr_streak['count']}x", curr_streak['player'])
         col2.metric("All-Time Rekord", f"{at_streak['count']}x", at_streak['player'])
@@ -411,8 +426,10 @@ with tab_dbl:
                 fig_wr.update_layout(yaxis=dict(range=[0, 100]), showlegend=False, margin=dict(t=40, b=0, l=0, r=0))
                 st.plotly_chart(fig_wr, use_container_width=True)
 
-with tab_spieler:
+# --- TAB 2: SPIELER LOKAL ---
+with tab_spieler_loc:
     st.header("Spieler Profile (Übersicht)")
+    st.markdown("<div style='color:#888; font-size:13px; margin-top:-10px; margin-bottom:20px;'>Globale Account-Daten (Trophäen) sowie lokale Crew-Performance.</div>", unsafe_allow_html=True)
     cols = st.columns(3)
     for idx, (name, tag) in enumerate(TAGS.items()):
         with cols[idx % 3]:
@@ -448,23 +465,23 @@ with tab_spieler:
                 st.markdown("**Meistgespielte Karten:**")
                 st.dataframe(top_u, hide_index=True, use_container_width=True)
 
-with tab_spieler_details:
-    st.header("Individuelle Spieler-Analyse")
-    st.markdown("Tiefgehende Analyse basierend auf dem globalen Langzeit-Archiv (Global_Data).")
+# --- TAB 3: SPIELER GLOBAL (DEEP DIVE) ---
+with tab_spieler_glob:
+    st.header("Globale Spieler-Analyse (Deep Dive)")
+    st.markdown("<div style='color:#888; font-size:13px; margin-top:-10px; margin-bottom:20px;'>Nutzt das Archiv (Global_Data) aller weltweit gespielten Matches des Accounts.</div>", unsafe_allow_html=True)
     
     selected_p = st.selectbox("Spieler auswählen:", list(TAGS.keys()), key="detail_player")
     
     if df_global.empty:
         st.warning("Keine Daten in Global_Data gefunden. Lass den Bot erst laufen!")
     else:
-        # Filtere Global Data nach dem ausgewählten Spieler
         p_global = df_global[df_global['Spieler'] == selected_p].sort_values('Time_ID')
         
         if p_global.empty:
             st.info(f"Keine globalen Spiele für {selected_p} im Archiv gefunden.")
         else:
             total_global_games = len(p_global)
-            st.success(f"Datenquelle gesichert. Berechne Statistiken basierend auf {total_global_games} archivierten Spielen.")
+            st.markdown(f"<div style='color:#4CAF50; font-weight:bold; margin-bottom:10px;'>Berechnungen basieren auf {total_global_games} archivierten globalen Spielen.</div>", unsafe_allow_html=True)
             
             b_games, b_wins, b_losses = 0, 0, 0
             crowns_for, crowns_against = 0, 0
@@ -474,8 +491,7 @@ with tab_spieler_details:
             last_5_html = "<div style='background-color: #121212; border-radius: 6px; border: 1px solid #333; padding: 0 15px; font-family: sans-serif;'>"
             
             count = 0
-            # Gehe alle Spiele des Spielers durch (von neu nach alt für die letzten 5, aber iteriere normal für gesamt)
-            for i, r in p_global.iloc[::-1].iterrows(): # Rückwärts für Last 5
+            for i, r in p_global.iloc[::-1].iterrows(): 
                 my_cr = r['Score_Me']
                 op_cr = r['Score_Opp']
                 opp_name = r['Opponent']
@@ -531,47 +547,52 @@ with tab_spieler_details:
             c1, c2, c3 = st.columns(3)
             with c1:
                 st.markdown("**1. Historische Formkurve**")
+                st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:5px;'>Gesamte Siegquote im Archiv. Über 50% = Positiv.</div>", unsafe_allow_html=True)
                 fig_wr = go.Figure(go.Indicator(mode="gauge+number", value=wr_recent, number={'suffix': "%"}, gauge={'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "#444"}, 'bar': {'color': "#2196F3"}, 'bgcolor': "#121212", 'borderwidth': 0}))
-                fig_wr.update_layout(height=200, margin=dict(l=10, r=10, t=20, b=10), paper_bgcolor="#0E1117", font={'color': "#FFF"})
+                fig_wr.update_layout(height=200, margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor="#0E1117", font={'color': "#FFF"})
                 st.plotly_chart(fig_wr, use_container_width=True)
             with c2:
                 st.markdown("**2 & 3. Offensiv vs Defensiv**")
+                st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:5px;'>Durchschnittlich geholte/kassierte Kronen. Höher = Aggressiver.</div>", unsafe_allow_html=True)
                 df_cr = pd.DataFrame({'Typ': ['Offensiv', 'Defensiv'], 'Kronen': [avg_cr_for, avg_cr_ag]})
                 fig_cr = px.bar(df_cr, x='Typ', y='Kronen', text_auto='.2f', color='Typ', color_discrete_map={'Offensiv': '#4CAF50', 'Defensiv': '#F44336'})
-                fig_cr.update_layout(height=200, margin=dict(l=10, r=10, t=20, b=10), paper_bgcolor="#0E1117", plot_bgcolor="#121212", showlegend=False, font={'color': "#FFF"}, yaxis_title="", xaxis_title="")
+                fig_cr.update_layout(height=200, margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor="#0E1117", plot_bgcolor="#121212", showlegend=False, font={'color': "#FFF"}, yaxis_title="", xaxis_title="")
                 st.plotly_chart(fig_cr, use_container_width=True)
             with c3:
                 st.markdown("**7. Deck-Flexibilität**")
-                st.markdown("<br>", unsafe_allow_html=True)
+                st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:30px;'>Anzahl genutzter einzigartiger Karten. Je höher, desto unberechenbarer.</div>", unsafe_allow_html=True)
                 st.metric(label="Gespielte einzigartige Karten", value=flex_index, delta=f"Aus {b_games} Matches", delta_color="off")
                 
             c4, c5, c6 = st.columns(3)
             with c4:
                 st.markdown("**4. Zu-Null-Quote (Clean Sheets)**")
+                st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:5px;'>Prozentsatz der Spiele ohne Gegentor (Perfekte Defensive).</div>", unsafe_allow_html=True)
                 fig_cs = px.pie(names=['Clean Sheets', 'Gegentor'], values=[clean_sheet_pct, 100-clean_sheet_pct], hole=0.6, color_discrete_sequence=['#2196F3', '#333'])
                 fig_cs.update_traces(textinfo='none')
-                fig_cs.update_layout(height=200, margin=dict(l=10, r=10, t=20, b=10), paper_bgcolor="#0E1117", font={'color': "#FFF"}, showlegend=False, annotations=[dict(text=f"{clean_sheet_pct:.0f}%", x=0.5, y=0.5, font_size=20, showarrow=False)])
+                fig_cs.update_layout(height=200, margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor="#0E1117", font={'color': "#FFF"}, showlegend=False, annotations=[dict(text=f"{clean_sheet_pct:.0f}%", x=0.5, y=0.5, font_size=20, showarrow=False)])
                 st.plotly_chart(fig_cs, use_container_width=True)
             with c5:
                 st.markdown("**5. Clutch-Rating (Nervenstärke)**")
+                st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:5px;'>Siegquote bei knappen Spielen (Exakt 1 Krone Unterschied).</div>", unsafe_allow_html=True)
                 if clutch_games == 0:
                     st.info("Keine knappen Spiele verzeichnet.")
                 else:
                     fig_cl = px.pie(names=['Knapper Sieg', 'Knappe Ndl'], values=[clutch_pct, 100-clutch_pct], hole=0.6, color_discrete_sequence=['#4CAF50', '#333'])
                     fig_cl.update_traces(textinfo='none')
-                    fig_cl.update_layout(height=200, margin=dict(l=10, r=10, t=20, b=10), paper_bgcolor="#0E1117", font={'color': "#FFF"}, showlegend=False, annotations=[dict(text=f"{clutch_pct:.0f}%", x=0.5, y=0.5, font_size=20, showarrow=False)])
+                    fig_cl.update_layout(height=200, margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor="#0E1117", font={'color': "#FFF"}, showlegend=False, annotations=[dict(text=f"{clutch_pct:.0f}%", x=0.5, y=0.5, font_size=20, showarrow=False)])
                     st.plotly_chart(fig_cl, use_container_width=True)
             with c6:
                 st.markdown("**6. Zerstörungs-Quote (3-Crowns)**")
+                st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:5px;'>Anteil der Siege, die durch absolute Vernichtung erzielt wurden.</div>", unsafe_allow_html=True)
                 if b_wins == 0:
                     st.info("Keine Siege verzeichnet.")
                 else:
                     fig_3c = px.pie(names=['3 Kronen', 'Normaler Sieg'], values=[three_cr_pct, 100-three_cr_pct], hole=0.6, color_discrete_sequence=['#FFC107', '#333'])
                     fig_3c.update_traces(textinfo='none')
-                    fig_3c.update_layout(height=200, margin=dict(l=10, r=10, t=20, b=10), paper_bgcolor="#0E1117", font={'color': "#FFF"}, showlegend=False, annotations=[dict(text=f"{three_cr_pct:.0f}%", x=0.5, y=0.5, font_size=20, showarrow=False)])
+                    fig_3c.update_layout(height=200, margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor="#0E1117", font={'color': "#FFF"}, showlegend=False, annotations=[dict(text=f"{three_cr_pct:.0f}%", x=0.5, y=0.5, font_size=20, showarrow=False)])
                     st.plotly_chart(fig_3c, use_container_width=True)
 
-            with st.expander("Erklärungen und Formeln zu den Kennzahlen"):
+            with st.expander("Erklärungen und Formeln zu den Kennzahlen (Ausklappen)"):
                 st.markdown("""
                 Diese Daten basieren auf den im Archiv hinterlegten globalen Spielen.
                 
@@ -585,103 +606,83 @@ with tab_spieler_details:
 
             st.markdown("---")
             st.subheader("Letzte 5 Globale Matches")
+            st.markdown("<div style='color:#888; font-size:13px; margin-top:-10px; margin-bottom:10px;'>Auszug aus dem Global-Archiv für diesen Spieler.</div>", unsafe_allow_html=True)
             st.markdown(last_5_html, unsafe_allow_html=True)
-            
-            st.markdown("---")
-            st.subheader("Lokale Crew-Performance")
-            p_df_local = df_comp[(df_comp['Spieler1'] == selected_p) | (df_comp['Spieler2'] == selected_p)]
-            top_u, top_w = calculate_card_stats(selected_p, df_comp)
-            
-            lc1, lc2 = st.columns(2)
-            with lc1:
-                st.markdown("**Letzte 5 Spiele (vs. Crew)**")
-                if not p_df_local.empty:
-                    loc_hist_html = "<div style='font-family: monospace; font-size: 0.9rem;'>"
-                    for _, r in p_df_local.sort_values('ID').tail(5).iloc[::-1].iterrows():
-                        is_p1 = r['Spieler1'] == selected_p
-                        opp = r['Spieler2'] if is_p1 else r['Spieler1']
-                        s_me = r['Score1'] if is_p1 else r['Score2']
-                        s_opp = r['Score2'] if is_p1 else r['Score1']
-                        if s_me > s_opp: res_col, res_text = "#4CAF50", "W"
-                        elif s_me < s_opp: res_col, res_text = "#F44336", "L"
-                        else: res_col, res_text = "#888888", "D"
-                        loc_hist_html += f"<div style='margin-bottom: 4px;'><span style='color: {res_col}; font-weight: bold; width: 20px; display: inline-block;'>{res_text}</span> vs {opp} ({s_me}:{s_opp})</div>"
-                    loc_hist_html += "</div>"
-                    st.markdown(loc_hist_html, unsafe_allow_html=True)
-                else:
-                    st.info("Keine lokalen Spiele.")
-                    
-            with lc2:
-                st.markdown("**Meistgespielte Karten (Lokal)**")
-                if not top_u.empty:
-                    st.dataframe(top_u, hide_index=True, use_container_width=True)
 
+# --- TAB 4: FUN MATCHES ---
 with tab_dbf:
     st.header("Fun Dashboard")
+    st.markdown("<div style='color:#888; font-size:13px; margin-top:-10px; margin-bottom:20px;'>Interne Spiele, die außerhalb des kompetitiven 1v1-Standards stattfanden.</div>", unsafe_allow_html=True)
     if not df_fun.empty:
         h2h_df, _, _ = get_h2h_stats_data(df_fun)
         st.dataframe(h2h_df, use_container_width=True, hide_index=True)
 
-with tab_nemesis:
-    st.header("Kryptonit")
-    if not df_comp.empty:
-        nem_df = calc_nemesis_kryptonit(df_comp)
-        if not nem_df.empty: st.table(nem_df)
-
+# --- TAB 5: AKTIVITÄT & TRENDS ---
 with tab_trends:
-    st.header("Formkurve (Net-Wins)")
-    if not df_comp.empty:
-        tf = st.selectbox("Zeitraum:", ["Letzte 15 Spiele", "Letzte 30 Spiele", "All-Time"])
-        trend_data = []
-        for p in TAGS.keys():
-            p_df = df_comp[(df_comp['Spieler1'] == p) | (df_comp['Spieler2'] == p)].sort_values('ID')
-            if tf == "Letzte 15 Spiele": p_df = p_df.tail(15)
-            elif tf == "Letzte 30 Spiele": p_df = p_df.tail(30)
-            net_wins = 0
-            for i, r in p_df.iterrows():
-                is_p1 = (r['Spieler1'] == p)
-                p_won = (r['Score1'] > r['Score2']) if is_p1 else (r['Score2'] > r['Score1'])
-                net_wins += (1 if p_won else -1)
-                trend_data.append({"Spieler": p[:10], "Match-Nr": len([d for d in trend_data if d['Spieler']==p[:10]])+1, "Net-Wins": net_wins})
-        tdf = pd.DataFrame(trend_data)
-        if not tdf.empty:
-            fig = px.line(tdf, x="Match-Nr", y="Net-Wins", color="Spieler", markers=True, template="plotly_white")
-            st.plotly_chart(fig, use_container_width=True)
+    st.header("Aktivität & Formkurven")
+    st.markdown("<div style='color:#888; font-size:13px; margin-top:-10px; margin-bottom:20px;'>Wann wird gespielt und wer hat den besten Lauf?</div>", unsafe_allow_html=True)
+    
+    col_t1, col_t2 = st.columns(2)
+    
+    with col_t1:
+        st.subheader("Formkurve (Net-Wins)")
+        st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:10px;'>Die Linie steigt bei Sieg und fällt bei Niederlage. Zeigt Momentum.</div>", unsafe_allow_html=True)
+        if not df_comp.empty:
+            tf = st.selectbox("Zeitraum:", ["Letzte 15 Spiele", "Letzte 30 Spiele", "All-Time"])
+            trend_data = []
+            for p in TAGS.keys():
+                p_df = df_comp[(df_comp['Spieler1'] == p) | (df_comp['Spieler2'] == p)].sort_values('ID')
+                if tf == "Letzte 15 Spiele": p_df = p_df.tail(15)
+                elif tf == "Letzte 30 Spiele": p_df = p_df.tail(30)
+                net_wins = 0
+                for i, r in p_df.iterrows():
+                    is_p1 = (r['Spieler1'] == p)
+                    p_won = (r['Score1'] > r['Score2']) if is_p1 else (r['Score2'] > r['Score1'])
+                    net_wins += (1 if p_won else -1)
+                    trend_data.append({"Spieler": p[:10], "Match-Nr": len([d for d in trend_data if d['Spieler']==p[:10]])+1, "Net-Wins": net_wins})
+            tdf = pd.DataFrame(trend_data)
+            if not tdf.empty:
+                fig = px.line(tdf, x="Match-Nr", y="Net-Wins", color="Spieler", markers=True)
+                fig.update_layout(paper_bgcolor="#0E1117", plot_bgcolor="#121212", font={'color': "#FFF"}, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                st.plotly_chart(fig, use_container_width=True)
 
-with tab_zeit:
-    st.header("Aktivitäts-Heatmap")
-    if not df_comp.empty:
-        df_time = df_comp.copy()
-        df_time['Time'] = df_time['ID'].apply(parse_time)
-        df_time = df_time.dropna(subset=['Time'])
-        if not df_time.empty:
-            df_time['Wochentag'] = df_time['Time'].dt.day_name()
-            df_time['Stunde'] = df_time['Time'].dt.hour
-            day_map = {"Monday": "Montag", "Tuesday": "Dienstag", "Wednesday": "Mittwoch", "Thursday": "Donnerstag", "Friday": "Freitag", "Saturday": "Samstag", "Sunday": "Sonntag"}
-            df_time['Wochentag'] = df_time['Wochentag'].map(day_map)
-            heatmap_data = df_time.groupby(['Wochentag', 'Stunde']).size().reset_index(name='Spiele')
-            pivot_data = heatmap_data.pivot(index='Wochentag', columns='Stunde', values='Spiele').fillna(0)
-            days_order = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
-            for d in days_order:
-                if d not in pivot_data.index: pivot_data.loc[d] = 0
-            pivot_data = pivot_data.reindex(days_order)
-            for h in range(24):
-                if h not in pivot_data.columns: pivot_data[h] = 0
-            pivot_data = pivot_data[list(range(24))]
-            fig_heat = px.imshow(pivot_data, labels=dict(x="Uhrzeit", y="Wochentag", color="Spiele"), x=list(range(24)), y=days_order, color_continuous_scale="Inferno", aspect="auto")
-            fig_heat.update_xaxes(dtick=1)
-            st.plotly_chart(fig_heat, use_container_width=True)
+    with col_t2:
+        st.subheader("Aktivitäts-Heatmap")
+        st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:10px;'>Helle Flächen markieren die Uhrzeiten mit den meisten Spielen.</div>", unsafe_allow_html=True)
+        if not df_comp.empty:
+            df_time = df_comp.copy()
+            df_time['Time'] = df_time['ID'].apply(parse_time)
+            df_time = df_time.dropna(subset=['Time'])
+            if not df_time.empty:
+                df_time['Wochentag'] = df_time['Time'].dt.day_name()
+                df_time['Stunde'] = df_time['Time'].dt.hour
+                day_map = {"Monday": "Montag", "Tuesday": "Dienstag", "Wednesday": "Mittwoch", "Thursday": "Donnerstag", "Friday": "Freitag", "Saturday": "Samstag", "Sunday": "Sonntag"}
+                df_time['Wochentag'] = df_time['Wochentag'].map(day_map)
+                heatmap_data = df_time.groupby(['Wochentag', 'Stunde']).size().reset_index(name='Spiele')
+                pivot_data = heatmap_data.pivot(index='Wochentag', columns='Stunde', values='Spiele').fillna(0)
+                days_order = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+                for d in days_order:
+                    if d not in pivot_data.index: pivot_data.loc[d] = 0
+                pivot_data = pivot_data.reindex(days_order)
+                for h in range(24):
+                    if h not in pivot_data.columns: pivot_data[h] = 0
+                pivot_data = pivot_data[list(range(24))]
+                fig_heat = px.imshow(pivot_data, labels=dict(x="Uhrzeit", y="Wochentag", color="Spiele"), x=list(range(24)), y=days_order, color_continuous_scale="Inferno", aspect="auto")
+                fig_heat.update_xaxes(dtick=1)
+                fig_heat.update_layout(paper_bgcolor="#0E1117", font={'color': "#FFF"})
+                st.plotly_chart(fig_heat, use_container_width=True)
 
+# --- TAB 6: SESSIONS ---
 with tab_sessions:
     st.header("Session Leaderboards")
-    st.markdown("Zusammenhängende Spiel-Sessions (Unterbrechungen von max. 30 Minuten).")
+    st.markdown("<div style='color:#888; font-size:13px; margin-top:-10px; margin-bottom:20px;'>Zusammenhängende Spiel-Sessions (Unterbrechungen von max. 30 Minuten). Das King-of-the-Hill (KotH) Rating ermittelt den MVP der Session.</div>", unsafe_allow_html=True)
     
     if df_comp.empty:
         st.warning("Keine Datenbasis für Sessions vorhanden.")
     else:
         sessions = build_sessions(df_comp)
         if sessions:
-            selected_s = st.selectbox("Wähle eine Session:", list(sessions.keys()))
+            selected_s = st.selectbox("Wähle eine Session aus der Historie:", list(sessions.keys()))
             s_df = sessions[selected_s].copy()
             s_df['Time'] = s_df['ID'].apply(parse_time)
             s_df_valid = s_df.dropna(subset=['Time']).sort_values('Time')
@@ -691,27 +692,30 @@ with tab_sessions:
                 h, r = divmod(dur.total_seconds(), 3600)
                 m, s = divmod(r, 60)
                 dur_str = f"{int(h)}h {int(m)}m {int(s)}s" if h>0 else (f"{int(m)}m {int(s)}s" if m>0 else f"{int(s)}s")
-                st.info(f"**Dauer:** {dur_str} | **Spiele gespielt:** {len(s_df)}")
+                st.info(f"**Gesamtdauer:** {dur_str} | **Spiele gespielt:** {len(s_df)}")
             
             lb = get_session_leaderboard(s_df)
             if not lb.empty: 
                 st.dataframe(lb, use_container_width=True)
                 
-                with st.expander("Wie wird das King of the Hill (KotH) Rating berechnet?"):
+                with st.expander("Erklärung: Wie wird das King of the Hill (KotH) Rating berechnet?"):
                     st.markdown("""
-                    Das **KotH-Rating (0-10)** bewertet, wer die Session dominiert hat.
+                    Das **KotH-Rating (0-10)** bewertet den Most Valuable Player (MVP) der Session.
+                    Es bestraft Spieler, die nur 1x spielen, gewinnen und dann aufhören ("Leaver"), und belohnt diejenigen, die das Schlachtfeld dominieren.
+                    
                     **Die Formel (Maximal 10 Punkte):**
-                    *   **Winrate (Max 4.0 Pkt):** $Winrate \times 4.0$
-                    *   **Dominanz (Max 3.5 Pkt):** $\frac{Eigene Siege}{Max Siege aller Spieler} \times 3.5$
-                    *   **Wichtigkeit (Max 2.5 Pkt):** $\frac{Eigene Matches}{Gesamt Matches} \times 2.5$
-                    *   **Streak-Modifikator:** $+ (\max Winstreak - 1) \times 0.3 - (\max Lösestreak - 1) \times 0.3$
+                    *   **Winrate (Max 4.0 Pkt):** Basis-Skillfaktor. Formel: $Winrate \times 4.0$
+                    *   **Dominanz (Max 3.5 Pkt):** Anteil an den maximalen Siegen des besten Spielers. Formel: $\frac{Eigene Siege}{Max Siege aller Spieler} \times 3.5$
+                    *   **Wichtigkeit (Max 2.5 Pkt):** Wie viele Spiele der Session hast du bestritten? Formel: $\frac{Eigene Matches}{Gesamt Matches} \times 2.5$
+                    *   **Streak-Modifikator:** Bonus für Winstreaks, Abzug für Lösestreaks. Formel: $+ (\max Winstreak - 1) \times 0.3 - (\max Lösestreak - 1) \times 0.3$
                     """)
         else:
             st.info("Noch keine vollständigen Sessions registriert.")
 
+# --- TAB 7: PROGNOSE ---
 with tab_prognose:
-    st.header("Live-Quoten & Historie")
-    st.markdown(f"<div style='color: #888; font-size: 0.9rem; margin-bottom: 20px;'>Letzte Aktualisierung: {latest_match_str}</div>", unsafe_allow_html=True)
+    st.header("Live-Quoten & Prognose")
+    st.markdown("<div style='color:#888; font-size:13px; margin-top:-10px; margin-bottom:20px;'>Automatische Buchmacher-Quoten basierend auf Head-to-Head Historie und aktueller Tagesform.</div>", unsafe_allow_html=True)
     
     if not df_comp.empty:
         pairs = list(itertools.combinations(TAGS.keys(), 2))
@@ -744,67 +748,52 @@ with tab_prognose:
 </div>
 """, unsafe_allow_html=True)
         
-        with st.expander("Wie werden diese Buchmacher-Quoten berechnet?"):
+        with st.expander("Erklärung: Wie werden diese Buchmacher-Quoten berechnet?"):
             st.markdown("""
+            Die App berechnet für jedes Matchup einen **Power-Score** für beide Spieler, der sich aus drei historischen Faktoren zusammensetzt.
+            
             **1. Der Score:**
             Jeder Spieler startet mit 100 Basis-Punkten. Darauf werden addiert:
-            *   **H2H-Bonus:** $1.5 \times (H2H_{WR} - 50)$
-            *   **Formkurve:** Jeder Net-Win gibt +2 Punkte.
-            *   **Momentum:** $+4 \times Streak$.
+            *   **H2H-Bonus:** Historische Winrate gegen diesen spezifischen Gegner. Formel: $1.5 \times (H2H_{WR} - 50)$
+            *   **Formkurve:** Jeder Net-Win aus der jüngsten Vergangenheit gibt +2 Punkte.
+            *   **Momentum:** Eine aktive Siegesserie bringt zusätzliche Punkte. Formel: $+4 \times Streak$.
             
             **2. Die Wahrscheinlichkeit:**
+            Berechnet sich aus dem Anteil am Gesamt-Score beider Spieler:
             $Prob_{A} = \frac{Score_A}{Score_A + Score_B}$
             
             **3. Die Quote:**
-            Buchmacher-Quote = $1 / Wahrscheinlichkeit$.
+            Typische Sportwetten-Logik: $Quote = 1 / Wahrscheinlichkeit$. (Eine 50% Chance = Quote 2.00).
             """)
-        
-        st.subheader("Letzte 5 globale Matches")
-        last_5_df = df_comp.sort_values(by='ID', ascending=False).head(5)
-        history_html = "<div style='background-color: #121212; border-radius: 6px; border: 1px solid #333; padding: 0 15px; font-family: sans-serif;'>"
-        for idx, r in last_5_df.iterrows():
-            t = parse_time(r['ID'])
-            t_str = t.strftime("%H:%M") if pd.notnull(t) else "Unbekannt"
-            p1, p2 = r['Spieler1'], r['Spieler2']
-            s1, s2 = r['Score1'], r['Score2']
-            c_p1 = "#FFF" if s1 > s2 else "#666"
-            c_p2 = "#FFF" if s2 > s1 else "#666"
-            w_p1 = "bold" if s1 > s2 else "normal"
-            w_p2 = "bold" if s2 > s1 else "normal"
-            border_bottom = "border-bottom: 1px solid #222;" if idx != last_5_df.index[-1] else ""
-            history_html += f"""
-<div style='display: flex; justify-content: space-between; align-items: center; {border_bottom} padding: 12px 0;'>
-<div style='width: 15%; color: #666; font-size: 0.85rem;'>{t_str}</div>
-<div style='width: 35%; text-align: right; color: {c_p1}; font-weight: {w_p1}; font-size: 0.95rem;'>{p1}</div>
-<div style='width: 15%; text-align: center; font-weight: bold; font-size: 1.1rem; letter-spacing: 2px;'>
-<span style='color: {c_p1};'>{s1}</span><span style='color: #444;'>:</span><span style='color: {c_p2};'>{s2}</span>
-</div>
-<div style='width: 35%; text-align: left; color: {c_p2}; font-weight: {w_p2}; font-size: 0.95rem;'>{p2}</div>
-</div>
-"""
-        history_html += "</div>"
-        st.markdown(history_html, unsafe_allow_html=True)
 
+# --- TAB 8: MATCH-ANALYSE ---
 with tab_analyse:
-    st.header("Deep Data Analytics")
+    st.header("Match-Analyse & Nemesis")
+    st.markdown("<div style='color:#888; font-size:13px; margin-top:-10px; margin-bottom:20px;'>Zusammenfassung von Momentum, historischen Angstgegnern und direkten Kräfteverhältnissen.</div>", unsafe_allow_html=True)
     if not df_comp.empty:
-        st.markdown(f"<div style='color: #888; font-size: 0.9rem; margin-bottom: 10px;'>Live Snapshot: {latest_match_str}</div>", unsafe_allow_html=True)
-        
-        st.subheader("Aktueller Power-Index")
-        st.markdown("<span style='color:#888; font-size:0.85rem;'>Dynamischer Wert (0-100) basierend auf Form und Siegesserien.</span>", unsafe_allow_html=True)
-        cols_pi = st.columns(3)
-        for idx, p in enumerate(TAGS.keys()):
-            pi = get_power_index(p, df_comp)
-            fig_pi = go.Figure(go.Indicator(
-                mode="gauge+number", value=pi, title={'text': p, 'font': {'size': 18, 'color': '#FFF'}},
-                gauge={'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "#444"}, 'bar': {'color': "#4CAF50" if pi >= 50 else "#F44336"}, 'bgcolor': "#121212", 'borderwidth': 0, 'steps': [{'range': [0, 40], 'color': "#2A1212"}, {'range': [40, 60], 'color': "#222"}, {'range': [60, 100], 'color': "#122A12"}]}
-            ))
-            fig_pi.update_layout(height=250, margin=dict(l=20, r=20, t=40, b=20), paper_bgcolor="#0E1117", font={'color': "#FFF"})
-            cols_pi[idx].plotly_chart(fig_pi, use_container_width=True)
+        c1, c2 = st.columns([1.5, 1])
+        with c1:
+            st.subheader("Aktueller Power-Index")
+            st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:10px;'>Dynamischer Wert (0-100). Werte über 60 zeigen eine heiße Phase (On-Fire). Unter 40 deutet auf einen Tilt hin.</div>", unsafe_allow_html=True)
+            cols_pi = st.columns(3)
+            for idx, p in enumerate(TAGS.keys()):
+                pi = get_power_index(p, df_comp)
+                fig_pi = go.Figure(go.Indicator(
+                    mode="gauge+number", value=pi, title={'text': p, 'font': {'size': 18, 'color': '#FFF'}},
+                    gauge={'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "#444"}, 'bar': {'color': "#4CAF50" if pi >= 50 else "#F44336"}, 'bgcolor': "#121212", 'borderwidth': 0, 'steps': [{'range': [0, 40], 'color': "#2A1212"}, {'range': [40, 60], 'color': "#222"}, {'range': [60, 100], 'color': "#122A12"}]}
+                ))
+                fig_pi.update_layout(height=200, margin=dict(l=10, r=10, t=30, b=10), paper_bgcolor="#0E1117", font={'color': "#FFF"})
+                cols_pi[idx].plotly_chart(fig_pi, use_container_width=True)
 
-        with st.expander("Was bedeutet der Power-Index?"):
+        with c2:
+            st.subheader("Kryptonit & Angstgegner")
+            st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:10px;'>Gegen wen und gegen welche Karte verliert man statistisch am häufigsten?</div>", unsafe_allow_html=True)
+            nem_df = calc_nemesis_kryptonit(df_comp)
+            if not nem_df.empty: st.dataframe(nem_df, hide_index=True, use_container_width=True)
+
+        with st.expander("Erklärung: Was bedeutet der Power-Index?"):
             st.markdown("""
-            Der Power-Index (PI) ist ein Tacho für die **aktuelle Hitze** eines Spielers. Er ignoriert die All-Time Stats.
+            Der Power-Index (PI) ist ein Tacho für die **aktuelle Hitze** eines Spielers. Er ignoriert die All-Time Stats komplett.
             Jeder Spieler ruht bei einem neutralen Wert von 50.
             *   **Form (letzte 15 Spiele):** $NetWins \times 2.5$
             *   **Momentum:** $Streak \times 5.0$
@@ -813,161 +802,49 @@ with tab_analyse:
             """)
 
         st.markdown("---")
-        st.subheader("H2H Dominanz-Matrix")
-        matrix_data = []
-        players = list(TAGS.keys())
-        for p1 in players:
-            row = []
-            for p2 in players:
-                if p1 == p2: row.append(None)
-                else:
-                    match_df = df_comp[((df_comp['Spieler1'] == p1) & (df_comp['Spieler2'] == p2)) | ((df_comp['Spieler1'] == p2) & (df_comp['Spieler2'] == p1))]
-                    if len(match_df) == 0: row.append(50.0)
+        c3, c4 = st.columns(2)
+        with c3:
+            st.subheader("H2H Dominanz-Matrix")
+            st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:10px;'>Lies von der Y-Achse (Links) zur X-Achse (Unten). Grün = Du dominierst den Gegner. Rot = Du wirst dominiert.</div>", unsafe_allow_html=True)
+            matrix_data = []
+            players = list(TAGS.keys())
+            for p1 in players:
+                row = []
+                for p2 in players:
+                    if p1 == p2: row.append(None)
                     else:
-                        p1_wins = sum(1 for _, r in match_df.iterrows() if (r['Spieler1']==p1 and r['Score1']>r['Score2']) or (r['Spieler2']==p1 and r['Score2']>r['Score1']))
-                        row.append((p1_wins / len(match_df)) * 100)
-            matrix_data.append(row)
-            
-        fig_heat = px.imshow(matrix_data, x=players, y=players, text_auto=".0f", color_continuous_scale=[[0, "#F44336"], [0.5, "#222"], [1, "#4CAF50"]], zmin=0, zmax=100)
-        fig_heat.update_layout(paper_bgcolor="#0E1117", plot_bgcolor="#0E1117", font={'color': "#FFF"})
-        st.plotly_chart(fig_heat, use_container_width=True)
-        
-        with st.expander("Wie lese ich die Dominanz-Matrix?"):
-            st.markdown("""
-            Die Matrix zeigt die **pure historische Winrate** von Spieler A gegen Spieler B in Prozent.
-            *   **Lese-Richtung:** Lies von der Y-Achse (Links) zur X-Achse (Unten). 
-            *   **Grün:** Du dominierst den Gegner (>50%).
-            *   **Rot:** Er ist dein Angstgegner (<50%).
-            """)
+                        match_df = df_comp[((df_comp['Spieler1'] == p1) & (df_comp['Spieler2'] == p2)) | ((df_comp['Spieler1'] == p2) & (df_comp['Spieler2'] == p1))]
+                        if len(match_df) == 0: row.append(50.0)
+                        else:
+                            p1_wins = sum(1 for _, r in match_df.iterrows() if (r['Spieler1']==p1 and r['Score1']>r['Score2']) or (r['Spieler2']==p1 and r['Score2']>r['Score1']))
+                            row.append((p1_wins / len(match_df)) * 100)
+                matrix_data.append(row)
+            fig_heat = px.imshow(matrix_data, x=players, y=players, text_auto=".0f", color_continuous_scale=[[0, "#F44336"], [0.5, "#222"], [1, "#4CAF50"]], zmin=0, zmax=100)
+            fig_heat.update_layout(height=350, margin=dict(t=20, b=20, l=20, r=20), paper_bgcolor="#0E1117", plot_bgcolor="#0E1117", font={'color': "#FFF"})
+            st.plotly_chart(fig_heat, use_container_width=True)
 
-        st.markdown("---")
-        st.subheader("Matchup Deep-Dive")
-        c1, c2 = st.columns(2)
-        sel_p1 = c1.selectbox("Spieler A", players, index=0)
-        sel_p2 = c2.selectbox("Spieler B", players, index=1)
-        
-        if sel_p1 != sel_p2:
-            st.markdown("<br>**Letzte 10 direkte Duelle (Tauziehen)**", unsafe_allow_html=True)
-            direct_df = df_comp[((df_comp['Spieler1'] == sel_p1) & (df_comp['Spieler2'] == sel_p2)) | ((df_comp['Spieler1'] == sel_p2) & (df_comp['Spieler2'] == sel_p1))].sort_values('ID').tail(10)
-            if not direct_df.empty:
-                tug_html = f"<div style='display: flex; width: 100%; height: 30px; border-radius: 4px; overflow: hidden; border: 1px solid #333; margin-top: 10px;'>"
-                for _, r in direct_df.iterrows():
-                    p1_won = (r['Spieler1'] == sel_p1 and r['Score1'] > r['Score2']) or (r['Spieler2'] == sel_p1 and r['Score2'] > r['Score1'])
-                    color = "#4CAF50" if p1_won else "#2196F3"
-                    tug_html += f"<div style='flex: 1; background-color: {color}; border-right: 1px solid #111;'></div>"
-                tug_html += "</div>"
-                st.markdown(f"<div style='display: flex; justify-content: space-between; font-size: 0.8rem; color: #AAA; margin-top: 5px;'><span style='color: #4CAF50;'>{sel_p1} (Grün)</span><span style='color: #2196F3;'>{sel_p2} (Blau)</span></div>", unsafe_allow_html=True)
-                st.markdown(tug_html, unsafe_allow_html=True)
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-            col_radar, col_line = st.columns(2)
-            with col_radar:
-                st.markdown("**Metrik-Vergleich (Radar)**")
+        with c4:
+            st.subheader("Matchup Radar-Vergleich")
+            st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:10px;'>Direkter Skill-Vergleich zwischen zwei Spielern (Werte auf 0-100 normiert). Je größer die Fläche, desto stärker.</div>", unsafe_allow_html=True)
+            sel_p1 = st.selectbox("Spieler A (Grün)", players, index=0)
+            sel_p2 = st.selectbox("Spieler B (Blau)", players, index=1)
+            if sel_p1 != sel_p2:
                 cat = ['H2H Winrate', 'Aktuelle Form', 'Momentum', 'Offensiv-Power', 'Globale Winrate']
                 fig_rad = go.Figure()
                 fig_rad.add_trace(go.Scatterpolar(r=get_player_stats_for_radar(sel_p1, sel_p2, df_comp), theta=cat, fill='toself', name=sel_p1, line_color='#4CAF50'))
                 fig_rad.add_trace(go.Scatterpolar(r=get_player_stats_for_radar(sel_p2, sel_p1, df_comp), theta=cat, fill='toself', name=sel_p2, line_color='#2196F3'))
-                fig_rad.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100], color="#555"), bgcolor="#121212"), paper_bgcolor="#0E1117", font={'color': "#FFF"}, margin=dict(t=30, b=30, l=30, r=30))
+                fig_rad.update_layout(height=280, polar=dict(radialaxis=dict(visible=True, range=[0, 100], color="#555"), bgcolor="#121212"), paper_bgcolor="#0E1117", font={'color': "#FFF"}, margin=dict(t=30, b=30, l=30, r=30))
                 st.plotly_chart(fig_rad, use_container_width=True)
-                
-                with st.expander("Wie normalisiert das Radar diese Werte auf 0-100?"):
-                    st.markdown("""
-                    Um Äpfel mit Birnen vergleichen zu können, werden alle Werte auf eine Skala von 0 bis 100 umgerechnet:
-                    *   **H2H Winrate & Globale Winrate:** Werden direkt als 0-100% übernommen.
-                    *   **Aktuelle Form:** Formel: $\frac{NetWins + 15}{30} \times 100$
-                    *   **Momentum:** Formel: $\frac{Streak + 5}{10} \times 100$
-                    *   **Offensiv-Power:** Formel: $\frac{AvgCrowns}{3.0} \times 100$
-                    """)
-                    
-            with col_line:
-                st.markdown("**Quoten-Verlauf**")
-                if len(direct_df) >= 3:
-                    o1_h, o2_h, lbl = [], [], []
-                    for idx, row in direct_df.iterrows():
-                        _, _, o1, o2, _ = calc_matchup_odds(sel_p1, sel_p2, df_comp.loc[:idx])
-                        o1_h.append(o1); o2_h.append(o2)
-                    fig_trend = px.line(pd.DataFrame({'Match': range(1, len(o1_h)+1), sel_p1: o1_h, sel_p2: o2_h}), x='Match', y=[sel_p1, sel_p2], color_discrete_map={sel_p1: '#4CAF50', sel_p2: '#2196F3'})
-                    fig_trend.update_layout(paper_bgcolor="#0E1117", plot_bgcolor="#121212", font={'color': "#FFF"}, yaxis_title="Quote (Tiefer=Besser)", xaxis_title="", legend_title="")
-                    fig_trend.update_yaxes(autorange="reversed")
-                    st.plotly_chart(fig_trend, use_container_width=True)
 
-with tab_mc:
-    st.header("Der Turnier-Simulator (Monte Carlo)")
-    with st.expander("Wie funktioniert das und was sehe ich hier?"):
-        st.markdown("""
-        **Ein statistischer Blick in die Zukunft.**
-        Der Computer würfelt zehntausende Matches im Hintergrund aus. Er würfelt nicht fair (50/50), sondern er nutzt eure echten Winrates, eure Form und das Momentum, um Turnierausgänge zu simulieren.
-        """)
-
-    if df_comp.empty:
-        st.warning("Keine Datenbasis für Simulationen.")
-    else:
-        st.markdown("### Die Spielregeln (Parameter)")
-        col_c1, col_c2, col_c3 = st.columns(3)
-        sim_count = col_c1.select_slider("Wie oft soll in die Zukunft geblickt werden?", options=[100, 1000, 5000, 10000, 50000], value=10000)
-        target_w = col_c2.slider("Wie viele Siege braucht man für den Turniersieg?", min_value=3, max_value=200, value=50, step=1)
-        fw = col_c3.slider("Wie stark zählt die heutige Tagesform?", min_value=0.0, max_value=2.0, value=1.0, step=0.1)
-        
-        if st.button("Turnier-Simulation jetzt starten", type="primary", use_container_width=True):
-            res_dict, total_sweeps = run_monte_carlo_tournament(df_comp, target_w, sim_count, fw)
-            st.session_state['mc_results'] = res_dict
-            st.session_state['mc_sweeps'] = total_sweeps
-            st.session_state['mc_sims'] = sim_count
-            st.session_state['mc_target'] = target_w
-            
-        st.markdown("---")
-        
-        if st.session_state['mc_results']:
-            res_dict = st.session_state['mc_results']
-            sims_done = st.session_state['mc_sims']
-            res_df = pd.DataFrame(list(res_dict.items()), columns=['Spieler', 'Turniersiege'])
-            res_df['Wahrscheinlichkeit'] = (res_df['Turniersiege'] / sims_done) * 100
-            res_df = res_df.sort_values(by='Turniersiege', ascending=False)
-            
-            st.subheader(f"Die Ergebnisse aus {sims_done:,} simulierten Turnieren".replace(',', '.'))
-            vis_choice = st.selectbox("Wie möchtest du das Ergebnis sehen?", ["1. Klassisches Podest (Balkendiagramm)", "2. Kuchen-Verteilung (Kreisdiagramm)", "3. Wahrscheinlichkeits-Tacho", "4. Harte Fakten (Zahlen)"])
-            col_chart, col_stats = st.columns([2, 1])
-            with col_chart:
-                if "Podest" in vis_choice:
-                    fig_mc = px.bar(res_df, x='Spieler', y='Wahrscheinlichkeit', text_auto='.1f', color='Spieler', title=f"Chance auf den Turniersieg")
-                    fig_mc.update_traces(textposition='outside')
-                    fig_mc.update_layout(yaxis=dict(title='Wahrscheinlichkeit (%)', range=[0, 100]), showlegend=False, paper_bgcolor="#0E1117", plot_bgcolor="#121212", font={'color': "#FFF"})
-                    st.plotly_chart(fig_mc, use_container_width=True)
-                elif "Kuchen" in vis_choice:
-                    fig_pie = px.pie(res_df, names='Spieler', values='Wahrscheinlichkeit', hole=0.4, title="Anteile an den Turniersiegen", color='Spieler')
-                    fig_pie.update_traces(textposition='inside', textinfo='percent+label')
-                    fig_pie.update_layout(paper_bgcolor="#0E1117", font={'color': "#FFF"}, showlegend=False)
-                    st.plotly_chart(fig_pie, use_container_width=True)
-                elif "Tacho" in vis_choice:
-                    st.markdown("**Sieg-Wahrscheinlichkeit pro Spieler**")
-                    tacho_cols = st.columns(3)
-                    for i, (index, row) in enumerate(res_df.iterrows()):
-                        fig_gauge = go.Figure(go.Indicator(mode="gauge+number", value=row['Wahrscheinlichkeit'], number={'suffix': "%"}, title={'text': row['Spieler'], 'font': {'size': 16, 'color': '#FFF'}}, gauge={'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "#444"}, 'bar': {'color': "#2196F3"}, 'bgcolor': "#121212", 'borderwidth': 0}))
-                        fig_gauge.update_layout(height=200, margin=dict(l=10, r=10, t=30, b=10), paper_bgcolor="#0E1117", font={'color': "#FFF"})
-                        tacho_cols[i % 3].plotly_chart(fig_gauge, use_container_width=True)
-                elif "Fakten" in vis_choice:
-                    st.markdown("**Exakte Turniersiege (Absolute Zahlen)**")
-                    f_cols = st.columns(3)
-                    for i, (index, row) in enumerate(res_df.iterrows()):
-                        f_cols[i % 3].metric(label=row['Spieler'], value=f"{row['Turniersiege']:,}".replace(',', '.'), delta=f"{row['Wahrscheinlichkeit']:.1f}% Winrate", delta_color="normal")
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    st.dataframe(res_df.reset_index(drop=True), use_container_width=True)
-
-            with col_stats:
-                st.markdown("<br><br>", unsafe_allow_html=True)
-                st.info(f"**Der Favorit:**<br>Zu {res_df.iloc[0]['Wahrscheinlichkeit']:.1f}% gewinnt **{res_df.iloc[0]['Spieler']}**.")
-                st.warning(f"**Vernichtungs-Quote:**<br>{(st.session_state['mc_sweeps']/sims_done)*100:.1f}%")
-
+# --- TAB 9: PROFIL DNA ---
 with tab_dna:
     st.header("Profil-DNA & Spiel-Psychologie")
+    st.markdown("<div style='color:#888; font-size:13px; margin-top:-10px; margin-bottom:20px;'>Tiefenanalyse von Verlässlichkeit und Deckbau.</div>", unsafe_allow_html=True)
     if df_comp.empty:
         st.warning("Keine Datenbasis vorhanden.")
     else:
-        st.markdown(f"<div style='color: #888; font-size: 0.9rem; margin-bottom: 20px;'>Live Snapshot: {latest_match_str}</div>", unsafe_allow_html=True)
-        
         st.subheader("Glicko Konsistenz-Index (Volatilität)")
-        st.markdown("<span style='color:#888; font-size:0.85rem;'>Misst die Verlässlichkeit und Nervenstärke eines Spielers.</span>", unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:15px;'>Misst Nervenstärke und Verlässlichkeit (0-100). Wer extremen Schwankungen (Tilts/Winstreaks) unterliegt, bekommt einen niedrigen Wert.</div>", unsafe_allow_html=True)
         
         for p in TAGS.keys():
             score, label, color = get_consistency_score(p, df_comp)
@@ -986,9 +863,14 @@ with tab_dna:
 </div>
 """, unsafe_allow_html=True)
 
-        with st.expander("Wie wird die Konsistenz berechnet?"):
+        with st.expander("Erklärung: Wie wird die Konsistenz berechnet?"):
             st.markdown("""
             Der Score misst die **Volatilität** – also wie extrem die Leistung schwankt.
+            
+            Ein Spieler, der exakt 50% Winrate hat, kann diese auf zwei Arten erreichen:
+            1.  **Die Maschine:** Sieg, Niederlage, Sieg, Niederlage. (Er ist konstant, man weiß was man bekommt).
+            2.  **Die Wundertüte:** 10 Siege in Folge, danach 10 Niederlagen am Stück in einem Tilt. (Er ist extrem unberechenbar).
+            
             **Die Formel:**
             Wir berechnen den Durchschnitt der Längen aller Serien ($\overline{Streak}$).
             $Konsistenz = 100 - ((\overline{Streak} - 1) \times 25)$
@@ -996,9 +878,9 @@ with tab_dna:
 
         st.markdown("---")
         st.subheader("Deck-Synergien (Deadly Duos)")
-        st.markdown("<span style='color:#888; font-size:0.85rem;'>Welche 2-Karten-Kombinationen im selben Deck sind für diesen Spieler am tödlichsten?</span>", unsafe_allow_html=True)
+        st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:15px;'>Welche 2-Karten-Kombinationen im selben Deck erzielen für diesen Spieler die absolut höchste Siegwahrscheinlichkeit? (Min. 3 Einsätze)</div>", unsafe_allow_html=True)
         
-        sel_player = st.selectbox("Wähle einen Spieler:", list(TAGS.keys()), key="dna_player")
+        sel_player = st.selectbox("Wähle einen Spieler für die Analyse:", list(TAGS.keys()), key="dna_player")
         synergy_df = get_top_synergies(sel_player, df_comp)
         
         if synergy_df.empty:
@@ -1010,13 +892,70 @@ with tab_dna:
             with col_s2:
                 plot_df = synergy_df.copy()
                 plot_df['WR_Float'] = plot_df['Sieg-Quote (%)'].str.replace('%', '').astype(float)
-                fig_syn = px.bar(plot_df, x='WR_Float', y='Karten-Duo', orientation='h', text='Sieg-Quote (%)', color='Spiele', color_continuous_scale="Viridis", title=f"Tödlichste Duos von {sel_player}")
-                fig_syn.update_layout(yaxis={'categoryorder':'total ascending'}, paper_bgcolor="#0E1117", plot_bgcolor="#121212", font={'color': "#FFF"}, xaxis_title="Sieg-Wahrscheinlichkeit (%)")
+                fig_syn = px.bar(plot_df, x='WR_Float', y='Karten-Duo', orientation='h', text='Sieg-Quote (%)', color='Spiele', color_continuous_scale="Viridis")
+                fig_syn.update_layout(height=250, margin=dict(l=10, r=10, t=10, b=10), yaxis={'categoryorder':'total ascending'}, paper_bgcolor="#0E1117", plot_bgcolor="#121212", font={'color': "#FFF"}, xaxis_title="Sieg-Wahrscheinlichkeit (%)")
                 st.plotly_chart(fig_syn, use_container_width=True)
 
-        with st.expander("Wie findet der Algorithmus diese 'Synergien'?"):
-            st.markdown("""
-            **Die Logik dahinter:**
-            1.  Der Bot spaltet dein 8-Karten Deck auf in **alle möglichen 2er-Kombinationen**.
-            2.  Er vergleicht, welches Karten-Pärchen am häufigsten in Decks auftaucht, die letztendlich auch **gewonnen** haben.
-            """)
+# --- TAB 10: MONTE CARLO ---
+with tab_mc:
+    st.header("Turnier-Simulator (Monte Carlo)")
+    st.markdown("<div style='color:#888; font-size:13px; margin-top:-10px; margin-bottom:20px;'>Ein statistischer Blick in die Zukunft. Der Algorithmus simuliert virtuelle Turniere basierend auf den echten Formkurven und H2H-Stats.</div>", unsafe_allow_html=True)
+
+    if df_comp.empty:
+        st.warning("Keine Datenbasis für Simulationen.")
+    else:
+        st.markdown("### Die Spielregeln (Parameter)")
+        col_c1, col_c2, col_c3 = st.columns(3)
+        sim_count = col_c1.select_slider("Anzahl der Universen (Simulationen):", options=[100, 1000, 5000, 10000, 50000], value=10000)
+        target_w = col_c2.slider("Turnier-Ziel (Race to X Wins):", min_value=3, max_value=200, value=50, step=1)
+        fw = col_c3.slider("Gewichtung der Tagesform:", min_value=0.0, max_value=2.0, value=1.0, step=0.1)
+        
+        if st.button("Turnier-Simulation starten", type="primary", use_container_width=True):
+            res_dict, total_sweeps = run_monte_carlo_tournament(df_comp, target_w, sim_count, fw)
+            st.session_state['mc_results'] = res_dict
+            st.session_state['mc_sweeps'] = total_sweeps
+            st.session_state['mc_sims'] = sim_count
+            st.session_state['mc_target'] = target_w
+            
+        st.markdown("---")
+        
+        if st.session_state['mc_results']:
+            res_dict = st.session_state['mc_results']
+            sims_done = st.session_state['mc_sims']
+            res_df = pd.DataFrame(list(res_dict.items()), columns=['Spieler', 'Turniersiege'])
+            res_df['Wahrscheinlichkeit'] = (res_df['Turniersiege'] / sims_done) * 100
+            res_df = res_df.sort_values(by='Turniersiege', ascending=False)
+            
+            st.subheader(f"Ergebnisse aus {sims_done:,} Turnieren".replace(',', '.'))
+            vis_choice = st.selectbox("Visualisierung auswählen:", ["1. Klassisches Podest (Balkendiagramm)", "2. Kuchen-Verteilung (Kreisdiagramm)", "3. Wahrscheinlichkeits-Tacho", "4. Harte Fakten (Zahlen)"])
+            
+            col_chart, col_stats = st.columns([2, 1])
+            with col_chart:
+                if "Podest" in vis_choice:
+                    fig_mc = px.bar(res_df, x='Spieler', y='Wahrscheinlichkeit', text_auto='.1f', color='Spieler')
+                    fig_mc.update_traces(textposition='outside')
+                    fig_mc.update_layout(yaxis=dict(title='Turniersieg Chance (%)', range=[0, 100]), showlegend=False, paper_bgcolor="#0E1117", plot_bgcolor="#121212", font={'color': "#FFF"})
+                    st.plotly_chart(fig_mc, use_container_width=True)
+                elif "Kuchen" in vis_choice:
+                    fig_pie = px.pie(res_df, names='Spieler', values='Wahrscheinlichkeit', hole=0.4, color='Spieler')
+                    fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+                    fig_pie.update_layout(paper_bgcolor="#0E1117", font={'color': "#FFF"}, showlegend=False)
+                    st.plotly_chart(fig_pie, use_container_width=True)
+                elif "Tacho" in vis_choice:
+                    st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:10px;'>Exakte prozentuale Siegchance pro Spieler.</div>", unsafe_allow_html=True)
+                    tacho_cols = st.columns(3)
+                    for i, (index, row) in enumerate(res_df.iterrows()):
+                        fig_gauge = go.Figure(go.Indicator(mode="gauge+number", value=row['Wahrscheinlichkeit'], number={'suffix': "%"}, title={'text': row['Spieler'], 'font': {'size': 16, 'color': '#FFF'}}, gauge={'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "#444"}, 'bar': {'color': "#2196F3"}, 'bgcolor': "#121212", 'borderwidth': 0}))
+                        fig_gauge.update_layout(height=200, margin=dict(l=10, r=10, t=30, b=10), paper_bgcolor="#0E1117", font={'color': "#FFF"})
+                        tacho_cols[i % 3].plotly_chart(fig_gauge, use_container_width=True)
+                elif "Fakten" in vis_choice:
+                    st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:10px;'>Absolute Zahlen: Wie oft hat der Spieler das Turnier virtuell gewonnen?</div>", unsafe_allow_html=True)
+                    f_cols = st.columns(3)
+                    for i, (index, row) in enumerate(res_df.iterrows()):
+                        f_cols[i % 3].metric(label=row['Spieler'], value=f"{row['Turniersiege']:,}".replace(',', '.'), delta=f"{row['Wahrscheinlichkeit']:.1f}% Winrate", delta_color="normal")
+                    st.dataframe(res_df.reset_index(drop=True), use_container_width=True)
+
+            with col_stats:
+                st.markdown("<br><br>", unsafe_allow_html=True)
+                st.info(f"**Top-Favorit:**<br>Zu {res_df.iloc[0]['Wahrscheinlichkeit']:.1f}% gewinnt **{res_df.iloc[0]['Spieler']}**.")
+                st.warning(f"**Vernichtungs-Quote (Sweeps):**<br>{(st.session_state['mc_sweeps']/sims_done)*100:.1f}%<br><span style='font-size:0.75rem; color:#444;'>Anteil der Turniere, in denen der Sieger alle anderen völlig deklassiert hat.</span>")
