@@ -22,7 +22,7 @@ TAGS = {
 }
 
 # WICHTIG: Füge hier den echten Link aus der Browser-Leiste ein
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1SZQhK7TeBRI6DspxVJWU31ul_PGTXNOoxcOwE6rn2u8/edit?gid=641247476#gid=641247476"
+SHEET_URL = "HIER_DEN_LINK_ZU_DEINER_GOOGLE_TABELLE_EINFÜGEN"
 
 API_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjhjMzk2MDM1LTgyMzMtNGFhMi04YzVjLTg3NjVmZDliYjE0MSIsImlhdCI6MTc3Nzk4NDU2Niwic3ViIjoiZGV2ZWxvcGVyL2MyYjczNjYyLWE2YjYtNzdkMC00N2I4LTM5YjE0MWYyNzcxOCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyI5Mi4yMDguMjUuMTIiXSwidHlwZSI6ImNsaWVudCJ9XX0.LG_Q_jELSrMoeRPVVU5saPFnNWBrGbzaaaXtl_4HvKEMd-jDBBldJUpLZXQJ2101_tGsxgQ-3bU5tejtmY3wQg"
 
@@ -177,7 +177,7 @@ def get_session_leaderboard(session_df):
     for p, d in stats.items():
         if d["P"]==0: continue
         rating = round((d["W"]/d["P"]*4.0) + (d["W"]/max_wins*3.5) + (d["P"]/total_games*2.5), 1)
-        lb.append({"Spieler": p, "Matches": d["P"], "Wins": d["W"], "Losses": d["L"], "WR": f"{d['W']/d['P']*100:.0f}%", "Rating (KotH)": rating})
+        lb.append({"Spieler": p[:10], "Matches": d["P"], "Wins": d["W"], "Losses": d["L"], "WR": f"{d['W']/d['P']*100:.0f}%", "Rating (KotH)": rating})
     return pd.DataFrame(lb).sort_values("Rating (KotH)", ascending=False).reset_index(drop=True)
 
 def get_power_index(player, df):
@@ -214,8 +214,14 @@ def get_top_synergies(player, df):
                 if pair not in syn: syn[pair] = {'g': 0, 'w': 0}
                 syn[pair]['g'] += 1
                 if win: syn[pair]['w'] += 1
-    res = [{'Duo': f"{p[0]} & {p[1]}", 'Spiele': s['g'], 'WR': s['w']/s['g']*100} for p, s in syn.items() if s['g'] >= 3]
-    return pd.DataFrame(res).sort_values("WR", ascending=False).head(5) if res else pd.DataFrame()
+    # Hier war der Fehler: Das DataFrame muss die korrekten Headers für das UI Diagramm haben!
+    res = [{'Karten-Duo': f"{p[0]} & {p[1]}", 'Spiele': s['g'], 'Sieg-Quote (%)': s['w']/s['g']*100} for p, s in syn.items() if s['g'] >= 3]
+    res_df = pd.DataFrame(res)
+    if not res_df.empty:
+        res_df = res_df.sort_values(by=['Sieg-Quote (%)', 'Spiele'], ascending=[False, False]).head(5)
+        res_df['Sieg-Quote (%)'] = res_df['Sieg-Quote (%)'].apply(lambda x: f"{x:.1f}%")
+        return res_df
+    return pd.DataFrame()
 
 def get_consistency_score(player, df):
     p_df = df[(df['Spieler1'] == player) | (df['Spieler2'] == player)].sort_values('ID')
@@ -261,7 +267,6 @@ if 'mc_results' not in st.session_state:
 
 # --- LADE DATEN ---
 df_comp = get_df_from_sheet(ws_comp)
-df_fun = get_df_from_sheet(ws_fun)
 df_prof = get_df_from_sheet(ws_prof)
 df_global = get_df_from_sheet(ws_global)
 
