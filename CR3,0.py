@@ -39,7 +39,7 @@ def init_google_sheets():
 try:
     ws_comp, ws_fun, ws_prof = init_google_sheets()
 except Exception as e:
-    st.error(f"Fehler bei Google Sheets! Hast du den neuen Reiter 'Profile_Data' angelegt? ({e})")
+    st.error(f"Resan hat Eichelschimmel ({e})")
     st.stop()
 
 def get_df_from_sheet(worksheet):
