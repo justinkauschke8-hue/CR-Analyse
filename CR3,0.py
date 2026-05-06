@@ -16,12 +16,12 @@ st.set_page_config(page_title="Clash Analyzer Pro", page_icon="🏆", layout="wi
 # --- KONFIGURATION & HARDCODED TAGS ---
 # WICHTIG: Deine echten In-Game Namen
 TAGS = {
-    "resan": "R902QGYCP",
-    "gooterplayer": "VCGLJU02",
-    "Jörg": "YY89R9L9G"
+    "EchterName1": "R902QGYCP",
+    "EchterName2": "VCGLJU02",
+    "EchterName3": "YY89R9L9G"
 }
 
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1SZQhK7TeBRI6DspxVJWU31ul_PGTXNOoxcOwE6rn2u8/edit?gid=0#gid=0"
+SHEET_URL = "HIER_DEN_LINK_ZU_DEINER_GOOGLE_TABELLE_EINFÜGEN"
 
 API_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjhjMzk2MDM1LTgyMzMtNGFhMi04YzVjLTg3NjVmZDliYjE0MSIsImlhdCI6MTc3Nzk4NDU2Niwic3ViIjoiZGV2ZWxvcGVyL2MyYjczNjYyLWE2YjYtNzdkMC00N2I4LTM5YjE0MWYyNzcxOCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyI5Mi4yMDguMjUuMTIiXSwidHlwZSI6ImNsaWVudCJ9XX0.LG_Q_jELSrMoeRPVVU5saPFnNWBrGbzaaaXtl_4HvKEMd-jDBBldJUpLZXQJ2101_tGsxgQ-3bU5tejtmY3wQg"
 
@@ -278,19 +278,63 @@ tab_dbl, tab_spieler, tab_dbf, tab_nemesis, tab_trends, tab_zeit, tab_sessions, 
 with tab_dbl:
     st.header("Lokal 1v1 Dashboard")
     if not df_comp.empty:
-        h2h_df, curr_streak, at_streak = get_h2h_stats_data(df_comp)
-        col1, col2 = st.columns(2)
-        col1.metric("Aktuelle Winstreak", f"{curr_streak['count']}x", curr_streak['player'])
-        col2.metric("All-Time Rekord", f"{at_streak['count']}x", at_streak['player'])
-        st.dataframe(h2h_df, use_container_width=True, hide_index=True)
-        
-        wr_data = []
+        # --- 1. DATEN FÜR LEADERBOARD BERECHNEN ---
+        lb_data = []
         for p in TAGS.keys():
             p_df = df_comp[(df_comp['Spieler1'] == p) | (df_comp['Spieler2'] == p)]
-            w = sum(1 for _, r in p_df.iterrows() if (r['Spieler1']==p and r['Score1']>r['Score2']) or (r['Spieler2']==p and r['Score2']>r['Score1']))
-            if len(p_df) > 0: wr_data.append({"Spieler": p[:10], "Winrate (%)": round((w/len(p_df)*100), 1)})
-        if wr_data:
-            fig = px.bar(wr_data, x='Spieler', y='Winrate (%)', title="All-Time 1v1 Winrates", text_auto=True, color='Spieler')
+            spiele = len(p_df)
+            if spiele > 0:
+                siege = sum(1 for _, r in p_df.iterrows() if (r['Spieler1']==p and r['Score1']>r['Score2']) or (r['Spieler2']==p and r['Score2']>r['Score1']))
+                niederlagen = spiele - siege
+                winrate = (siege / spiele) * 100
+                net_wins = siege - niederlagen
+                lb_data.append({
+                    "Spieler": p[:10],
+                    "Spiele": spiele,
+                    "Siege": siege,
+                    "Niederlagen": niederlagen,
+                    "Net-Wins": net_wins,
+                    "Winrate (%)": round(winrate, 1)
+                })
+        
+        # --- 2. LEADERBOARD TABELLE ANZEIGEN ---
+        if lb_data:
+            st.subheader("🏆 All-Time Leaderboard")
+            # Sortieren: Erst nach Winrate, bei Gleichstand nach Net-Wins
+            df_lb = pd.DataFrame(lb_data)
+            df_lb = df_lb.sort_values(by=["Winrate (%)", "Net-Wins"], ascending=[False, False]).reset_index(drop=True)
+            df_lb.index = df_lb.index + 1  # Ränge bei 1 starten (statt 0)
+            df_lb.index.name = "Rang"
+            st.dataframe(df_lb, use_container_width=True)
+
+        st.markdown("---")
+        
+        # --- 3. HEAD-TO-HEAD & STREAKS ---
+        h2h_df, curr_streak, at_streak = get_h2h_stats_data(df_comp)
+        col1, col2 = st.columns(2)
+        col1.metric("🔥 Aktuelle Winstreak", f"{curr_streak['count']}x", curr_streak['player'])
+        col2.metric("👑 All-Time Rekord", f"{at_streak['count']}x", at_streak['player'])
+        st.dataframe(h2h_df, use_container_width=True, hide_index=True)
+        
+        st.markdown("---")
+
+        # --- 4. HISTOGRAMM (WINS x / 100) ---
+        if lb_data:
+            st.subheader("📊 Winrate Histogramm (Wins pro 100 Spiele)")
+            fig = px.bar(
+                df_lb, 
+                x='Spieler', 
+                y='Winrate (%)', 
+                text_auto='.1f', 
+                color='Spieler',
+                title="Performance-Vergleich (0 - 100%)"
+            )
+            # Y-Achse hart auf Skala von 0 bis 100 zwingen
+            fig.update_layout(
+                yaxis=dict(range=[0, 100]), 
+                showlegend=False,
+                margin=dict(t=40, b=0, l=0, r=0)
+            )
             st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("Noch keine Daten in der Google Tabelle gefunden.")
