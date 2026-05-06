@@ -14,7 +14,7 @@ st.set_page_config(page_title="Clash Analyzer Pro", page_icon="🏆", layout="wi
 DB_FILE = "clash_karten_data.csv"      
 DB_FUN_FILE = "clash_fun_data.csv"     
 API_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjhjMzk2MDM1LTgyMzMtNGFhMi04YzVjLTg3NjVmZDliYjE0MSIsImlhdCI6MTc3Nzk4NDU2Niwic3ViIjoiZGV2ZWxvcGVyL2MyYjczNjYyLWE2YjYtNzdkMC00N2I4LTM5YjE0MWYyNzcxOCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyI5Mi4yMDguMjUuMTIiXSwidHlwZSI6ImNsaWVudCJ9XX0.LG_Q_jELSrMoeRPVVU5saPFnNWBrGbzaaaXtl_4HvKEMd-jDBBldJUpLZXQJ2101_tGsxgQ-3bU5tejtmY3wQg"
-OLD_TAGS = {"RH": "R902QGYCP", "JB": "VCGLJU02", "JK": "YY89R9L9G"}
+OLD_TAGS = {"resan": "R902QGYCP", "gooterplayer": "VCGLJU02", "Jörg": "YY89R9L9G"}
 
 # --- API LOGIK ---
 @st.cache_data(ttl=60)
