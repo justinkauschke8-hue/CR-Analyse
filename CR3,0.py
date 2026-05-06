@@ -185,15 +185,14 @@ def calc_matchup_odds(p1, p2, df):
     odds_1 = max(1.01, round(1 / prob_1, 2))
     odds_2 = max(1.01, round(1 / prob_2, 2))
     
-    # Nüchterne, analytische Insights ohne Emojis oder Motivationstexte
     insight = "Ausgeglichenes Matchup."
     if total_h2h == 0: insight = "Keine H2H-Historie."
-    elif p1_h2h_wr > 50 and s2 >= 3: insight = f"H2H-Vorteil {p1} | Momentum {p2} (+{s2})"
-    elif p2_h2h_wr > 50 and s1 >= 3: insight = f"H2H-Vorteil {p2} | Momentum {p1} (+{s1})"
-    elif f1 > f2 + 4: insight = f"Form-Vorteil {p1} (NW: +{f1})"
-    elif f2 > f1 + 4: insight = f"Form-Vorteil {p2} (NW: +{f2})"
-    elif p1_h2h_wr >= 70: insight = f"H2H-Dominanz {p1} ({p1_h2h_wr:.0f}%)"
-    elif p2_h2h_wr >= 70: insight = f"H2H-Dominanz {p2} ({p2_h2h_wr:.0f}%)"
+    elif p1_h2h_wr > 50 and s2 >= 3: insight = f"H2H-Vorteil {p1[:6]} | Momentum {p2[:6]} (+{s2})"
+    elif p2_h2h_wr > 50 and s1 >= 3: insight = f"H2H-Vorteil {p2[:6]} | Momentum {p1[:6]} (+{s1})"
+    elif f1 > f2 + 4: insight = f"Form-Vorteil {p1[:6]} (NW: +{f1})"
+    elif f2 > f1 + 4: insight = f"Form-Vorteil {p2[:6]} (NW: +{f2})"
+    elif p1_h2h_wr >= 70: insight = f"H2H-Dominanz {p1[:6]} ({p1_h2h_wr:.0f}%)"
+    elif p2_h2h_wr >= 70: insight = f"H2H-Dominanz {p2[:6]} ({p2_h2h_wr:.0f}%)"
     
     return prob_1*100, prob_2*100, odds_1, odds_2, insight
 
@@ -479,40 +478,29 @@ with tab_prognose:
             with cols[idx % 3]:
                 prob1, prob2, odds1, odds2, insight = calc_matchup_odds(p1, p2, df_comp)
                 
-                # Professionelle HTML-Wettkarte
+                # Das HTML muss für Streamlit komplett links anliegen, sonst wird es als Code gewertet!
                 st.markdown(f"""
-                <div style='background-color: #1E1E1E; color: #FFF; padding: 16px; border-radius: 8px; border: 1px solid #333; margin-bottom: 15px; font-family: sans-serif;'>
-                    
-                    <!-- Header -->
-                    <div style='text-align: center; font-weight: 600; font-size: 1.05rem; margin-bottom: 16px; border-bottom: 1px solid #333; padding-bottom: 8px;'>
-                        {p1[:10]} <span style='color: #777; font-weight: 400; font-size: 0.85rem; margin: 0 5px;'>vs</span> {p2[:10]}
-                    </div>
-                    
-                    <!-- Quoten & Wahrscheinlichkeiten -->
-                    <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;'>
-                        <div style='text-align: left; width: 45%;'>
-                            <div style='font-size: 1.4rem; font-weight: 700; color: #4CAF50;'>{odds1:.2f}</div>
-                            <div style='font-size: 0.75rem; color: #888; margin-top: 2px;'>{prob1:.0f}%</div>
-                        </div>
-                        
-                        <div style='width: 10%; text-align: center; color: #555; font-size: 0.7rem; text-transform: uppercase;'>Quote</div>
-                        
-                        <div style='text-align: right; width: 45%;'>
-                            <div style='font-size: 1.4rem; font-weight: 700; color: #2196F3;'>{odds2:.2f}</div>
-                            <div style='font-size: 0.75rem; color: #888; margin-top: 2px;'>{prob2:.0f}%</div>
-                        </div>
-                    </div>
-                    
-                    <!-- Doppel-Balken (Waage) -->
-                    <div style='width: 100%; background-color: #2b2b2b; border-radius: 4px; height: 6px; margin-bottom: 16px; display: flex; overflow: hidden;'>
-                        <div style='width: {prob1}%; background-color: #4CAF50; height: 100%;'></div>
-                        <div style='width: {prob2}%; background-color: #2196F3; height: 100%;'></div>
-                    </div>
-                    
-                    <!-- Analytischer Insight -->
-                    <div style='font-size: 0.75rem; color: #AAA; text-align: center; background-color: #252525; padding: 6px; border-radius: 4px; min-height: 26px; display: flex; align-items: center; justify-content: center;'>
-                        {insight}
-                    </div>
-                    
-                </div>
-                """, unsafe_allow_html=True)
+<div style='background-color: #1E1E1E; color: #FFF; padding: 16px; border-radius: 8px; border: 1px solid #333; margin-bottom: 15px; font-family: sans-serif;'>
+    <div style='text-align: center; font-weight: 600; font-size: 1.05rem; margin-bottom: 16px; border-bottom: 1px solid #333; padding-bottom: 8px;'>
+        {p1[:10]} <span style='color: #777; font-weight: 400; font-size: 0.85rem; margin: 0 5px;'>vs</span> {p2[:10]}
+    </div>
+    <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;'>
+        <div style='text-align: left; width: 45%;'>
+            <div style='font-size: 1.4rem; font-weight: 700; color: #4CAF50;'>{odds1:.2f}</div>
+            <div style='font-size: 0.75rem; color: #888; margin-top: 2px;'>{prob1:.0f}%</div>
+        </div>
+        <div style='width: 10%; text-align: center; color: #555; font-size: 0.7rem; text-transform: uppercase;'>Quote</div>
+        <div style='text-align: right; width: 45%;'>
+            <div style='font-size: 1.4rem; font-weight: 700; color: #2196F3;'>{odds2:.2f}</div>
+            <div style='font-size: 0.75rem; color: #888; margin-top: 2px;'>{prob2:.0f}%</div>
+        </div>
+    </div>
+    <div style='width: 100%; background-color: #2b2b2b; border-radius: 4px; height: 6px; margin-bottom: 16px; display: flex; overflow: hidden;'>
+        <div style='width: {prob1}%; background-color: #4CAF50; height: 100%;'></div>
+        <div style='width: {prob2}%; background-color: #2196F3; height: 100%;'></div>
+    </div>
+    <div style='font-size: 0.75rem; color: #AAA; text-align: center; background-color: #252525; padding: 6px; border-radius: 4px; min-height: 26px; display: flex; align-items: center; justify-content: center;'>
+        {insight}
+    </div>
+</div>
+""", unsafe_allow_html=True)
