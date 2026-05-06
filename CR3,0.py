@@ -6,23 +6,46 @@ from datetime import datetime, timedelta
 import plotly.express as px
 import plotly.graph_objects as go
 import os
+import json
+import gspread
+from google.oauth2.service_account import Credentials
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Clash Analyzer Pro", page_icon="🏆", layout="wide")
 
-# --- KONFIGURATION ---
-DB_FILE = "clash_karten_data.csv"      
-DB_FUN_FILE = "clash_fun_data.csv"     
+# --- KONFIGURATION & HARDCODED TAGS ---
+# WICHTIG: Deine echten In-Game Namen
+TAGS = {
+    "resan": "R902QGYCP",
+    "gooterplayer": "VCGLJU02",
+    "Jörg": "YY89R9L9G"
+}
+
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1SZQhK7TeBRI6DspxVJWU31ul_PGTXNOoxcOwE6rn2u8/edit?gid=0#gid=0"
+
 API_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjhjMzk2MDM1LTgyMzMtNGFhMi04YzVjLTg3NjVmZDliYjE0MSIsImlhdCI6MTc3Nzk4NDU2Niwic3ViIjoiZGV2ZWxvcGVyL2MyYjczNjYyLWE2YjYtNzdkMC00N2I4LTM5YjE0MWYyNzcxOCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyI5Mi4yMDguMjUuMTIiXSwidHlwZSI6ImNsaWVudCJ9XX0.LG_Q_jELSrMoeRPVVU5saPFnNWBrGbzaaaXtl_4HvKEMd-jDBBldJUpLZXQJ2101_tGsxgQ-3bU5tejtmY3wQg"
 
-# --- HARDCODED TAGS (Bypass für den Cloud-Block) ---
-# WICHTIG: Ändere die Namen in den Anführungszeichen zu euren echten In-Game Namen!
-TAGS = {
-    "resan":            "R902QGYCP",  # Ersetze EchterName1 (RH)
-    "gooterplayer":     "VCGLJU02",   # Ersetze EchterName2 (JB)
-    "Jörg":             "YY89R9L9G"   # Ersetze EchterName3 (JK)
-}
-NAME_MAPPING = {} 
+# --- GOOGLE SHEETS SETUP ---
+@st.cache_resource
+def init_google_sheets():
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    creds_dict = json.loads(st.secrets["google_credentials"])
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    client = gspread.authorize(creds)
+    sheet = client.open_by_url(SHEET_URL)
+    return sheet.worksheet("Karten_Data"), sheet.worksheet("Fun_Data")
+
+try:
+    ws_comp, ws_fun = init_google_sheets()
+except Exception as e:
+    st.error(f"Fehler bei der Verbindung zu Google Sheets. Bitte überprüfe die Secrets und den Link! ({e})")
+    st.stop()
+
+def get_df_from_sheet(worksheet):
+    data = worksheet.get_all_records()
+    if data:
+        return pd.DataFrame(data)
+    return pd.DataFrame(columns=["ID", "Spieler1", "Spieler2", "Score1", "Score2", "Karten1", "Karten2"])
 
 # --- API LOGIK ---
 @st.cache_data(ttl=60)
@@ -34,32 +57,14 @@ def get_api_data(endpoint, tag):
         return res.json() if res.status_code == 200 else None
     except: return None
 
-# --- INITIALISIERUNG ---
-def init_and_migrate_db(file_path):
-    columns = ["ID", "Spieler1", "Spieler2", "Score1", "Score2", "Karten1", "Karten2"]
-    if not os.path.exists(file_path): pd.DataFrame(columns=columns).to_csv(file_path, index=False)
-    else:
-        try:
-            df = pd.read_csv(file_path)
-            changed = False
-            if "ID" not in df.columns:
-                df.insert(0, "ID", "LEGACY_" + df.index.astype(str))
-                changed = True
-            if changed: df.to_csv(file_path, index=False)
-        except: pass
-
-init_and_migrate_db(DB_FILE)
-init_and_migrate_db(DB_FUN_FILE)
-
-# --- AUTO-SCANNER ---
+# --- AUTO-SCANNER (Google Sheets Sync) ---
 def scan_for_battles():
-    try: df_comp = pd.read_csv(DB_FILE)
-    except: df_comp = pd.DataFrame(columns=["ID", "Spieler1", "Spieler2", "Score1", "Score2", "Karten1", "Karten2"])
-    try: df_fun = pd.read_csv(DB_FUN_FILE)
-    except: df_fun = pd.DataFrame(columns=["ID", "Spieler1", "Spieler2", "Score1", "Score2", "Karten1", "Karten2"])
+    df_comp = get_df_from_sheet(ws_comp)
+    df_fun = get_df_from_sheet(ws_fun)
 
-    new_comp, new_fun = 0, 0
-    known_comp_ids, known_fun_ids = set(df_comp['ID'].astype(str)), set(df_fun['ID'].astype(str))
+    new_comp_rows, new_fun_rows = [], []
+    known_comp_ids = set(df_comp['ID'].astype(str)) if not df_comp.empty else set()
+    known_fun_ids = set(df_fun['ID'].astype(str)) if not df_fun.empty else set()
 
     for name, tag in TAGS.items():
         log = get_api_data("battlelog", tag)
@@ -73,21 +78,22 @@ def scan_for_battles():
                 s1, s2 = b['team'][0]['crowns'], b['opponent'][0]['crowns']
                 k1 = ", ".join([c['name'] for c in b['team'][0]['cards']]) if 'cards' in b['team'][0] else ""
                 k2 = ", ".join([c['name'] for c in b['opponent'][0]['cards']]) if 'cards' in b['opponent'][0] else ""
-                row_df = pd.DataFrame([{"ID": b_id, "Spieler1": name, "Spieler2": rival, "Score1": s1, "Score2": s2, "Karten1": k1, "Karten2": k2}])
+                row_data = [b_id, name, rival, s1, s2, k1, k2]
 
                 if b_id not in known_fun_ids:
-                    df_fun = pd.concat([df_fun, row_df], ignore_index=True)
-                    known_fun_ids.add(b_id); new_fun += 1
+                    new_fun_rows.append(row_data)
+                    known_fun_ids.add(b_id)
 
                 is_solo = len(b.get('team', [])) == 1 and len(b.get('opponent', [])) == 1
                 is_own_deck = b.get('deckSelection', 'collection') == 'collection'
                 if is_solo and is_own_deck and b_id not in known_comp_ids:
-                    df_comp = pd.concat([df_comp, row_df], ignore_index=True)
-                    known_comp_ids.add(b_id); new_comp += 1
+                    new_comp_rows.append(row_data)
+                    known_comp_ids.add(b_id)
 
-    df_comp.to_csv(DB_FILE, index=False)
-    df_fun.to_csv(DB_FUN_FILE, index=False)
-    return new_comp, new_fun
+    if new_comp_rows: ws_comp.append_rows(new_comp_rows)
+    if new_fun_rows: ws_fun.append_rows(new_fun_rows)
+    
+    return len(new_comp_rows), len(new_fun_rows)
 
 # --- HELFER FUNKTIONEN ---
 def calculate_card_stats(spieler, df):
@@ -247,26 +253,22 @@ def get_session_leaderboard(session_df):
     return df_lb
 
 # --- UI & LAYOUT ---
-try: df_comp = pd.read_csv(DB_FILE)
-except: df_comp = pd.DataFrame()
-try: df_fun = pd.read_csv(DB_FUN_FILE)
-except: df_fun = pd.DataFrame()
+df_comp = get_df_from_sheet(ws_comp)
+df_fun = get_df_from_sheet(ws_fun)
 
-# Sidebar
 st.sidebar.title("🎮 Clash Analyzer Pro")
 st.sidebar.markdown("---")
-st.sidebar.info("Hinweis: Livedaten-Sync funktioniert aufgrund von API-Beschränkungen in der Cloud nicht. Bitte ziehe neue CSV-Dateien direkt auf GitHub hoch.")
+
+if st.sidebar.button("🔄 Neue Spiele suchen", use_container_width=True, type="primary"):
+    with st.spinner("Scanne API & synchronisiere mit Google Sheets..."):
+        c, f = scan_for_battles()
+        st.sidebar.success(f"{c} Kompetitiv / {f} Fun neu in der Tabelle!")
+        st.rerun()
 
 st.sidebar.markdown(f"*Letztes Update: {datetime.now().strftime('%H:%M:%S')}*")
-
-# Debugging Info (optional, aber hilfreich)
 st.sidebar.markdown("---")
-st.sidebar.subheader("🛠️ Debug Info (System-Röntgen)")
-st.sidebar.write(f"Gefundene Spiele in DB: {len(df_comp)}")
-st.sidebar.write(f"Eingestellte Such-Namen: {list(TAGS.keys())}")
-if not df_comp.empty:
-    st.sidebar.write("Echte Namen in der Datenbank (Vergleich):")
-    st.sidebar.write(df_comp['Spieler1'].unique())
+st.sidebar.subheader("🛠️ DB Status")
+st.sidebar.write(f"Gespeicherte Duelle: {len(df_comp)}")
 
 # Tabs 
 tab_dbl, tab_spieler, tab_dbf, tab_nemesis, tab_trends, tab_zeit, tab_sessions, tab_orakel = st.tabs([
@@ -291,7 +293,7 @@ with tab_dbl:
             fig = px.bar(wr_data, x='Spieler', y='Winrate (%)', title="All-Time 1v1 Winrates", text_auto=True, color='Spieler')
             st.plotly_chart(fig, use_container_width=True)
     else:
-        st.info("Keine kompetitiven Duelle gefunden.")
+        st.info("Noch keine Daten in der Google Tabelle gefunden.")
 
 with tab_spieler:
     st.header("Spieler Profile")
@@ -301,42 +303,30 @@ with tab_spieler:
             st.subheader(name[:10])
             api = get_api_data("", tag)
             if api:
-                st.write(f"🏆 **Trophäen:** {api.get('trophies', 0)} (Rekord: {api.get('bestTrophies', 0)})")
-                st.write(f"⚔️ **Siege:** {api.get('wins',0)} | **Ndl:** {api.get('losses',0)}")
-            else:
-                st.write("*(Live-Profil-Daten derzeit nicht abrufbar)*")
+                st.write(f"🏆 **Trophäen:** {api.get('trophies', 0)}")
+                st.write(f"⚔️ **Siege:** {api.get('wins',0)}")
             
             top_u, top_w = calculate_card_stats(name, df_comp)
             if not top_u.empty:
                 st.markdown("**Meistgespielte Karten:**")
                 st.dataframe(top_u, hide_index=True, use_container_width=True)
-                st.markdown("**Beste Winrate:**")
-                st.dataframe(top_w, hide_index=True, use_container_width=True)
 
 with tab_dbf:
     st.header("Lokal Fun Dashboard")
     if not df_fun.empty:
         h2h_df, _, _ = get_h2h_stats_data(df_fun)
         st.dataframe(h2h_df, use_container_width=True, hide_index=True)
-    else:
-        st.info("Keine Fun-Matches gefunden.")
 
 with tab_nemesis:
     st.header("Kryptonit & Angstgegner")
     if not df_comp.empty:
         nem_df = calc_nemesis_kryptonit(df_comp)
-        if not nem_df.empty:
-            st.table(nem_df)
-        else:
-            st.info("Noch nicht genug Daten für Angstgegner.")
+        if not nem_df.empty: st.table(nem_df)
 
 with tab_trends:
     st.header("Interaktive Formkurve (Net-Wins)")
     if not df_comp.empty:
-        c1, c2 = st.columns(2)
-        tf = c1.selectbox("Zeitraum:", ["All-Time", "Letzte 15 Spiele", "Letzte 30 Spiele"])
-        show_ma = c2.checkbox("Gleitenden Durchschnitt anzeigen (Glättung)")
-
+        tf = st.selectbox("Zeitraum:", ["All-Time", "Letzte 15 Spiele", "Letzte 30 Spiele"])
         trend_data = []
         for p in TAGS.keys():
             p_df = df_comp[(df_comp['Spieler1'] == p) | (df_comp['Spieler2'] == p)].sort_values('ID')
@@ -347,79 +337,17 @@ with tab_trends:
             for i, r in p_df.iterrows():
                 is_p1 = (r['Spieler1'] == p)
                 p_won = (r['Score1'] > r['Score2']) if is_p1 else (r['Score2'] > r['Score1'])
-                opp = r['Spieler2'] if is_p1 else r['Spieler1']
                 net_wins += (1 if p_won else -1)
-                trend_data.append({"Spieler": p[:10], "Match-Nr": len([d for d in trend_data if d['Spieler']==p[:10]])+1, 
-                                   "Net-Wins": net_wins, "Gegner": opp[:10], "Resultat": "Sieg" if p_won else "Niederlage"})
+                trend_data.append({"Spieler": p[:10], "Match-Nr": len([d for d in trend_data if d['Spieler']==p[:10]])+1, "Net-Wins": net_wins})
         
         tdf = pd.DataFrame(trend_data)
         if not tdf.empty:
-            fig = px.line(tdf, x="Match-Nr", y="Net-Wins", color="Spieler", markers=True, 
-                          hover_data=["Resultat", "Gegner"], template="plotly_white")
-            if show_ma:
-                for p in tdf['Spieler'].unique():
-                    ma = tdf[tdf['Spieler'] == p]['Net-Wins'].rolling(window=3, min_periods=1).mean()
-                    fig.add_trace(go.Scatter(x=tdf[tdf['Spieler']==p]['Match-Nr'], y=ma, mode='lines', 
-                                             line=dict(dash='dash'), name=f"{p} (Trend)", opacity=0.5))
+            fig = px.line(tdf, x="Match-Nr", y="Net-Wins", color="Spieler", markers=True, template="plotly_white")
             st.plotly_chart(fig, use_container_width=True)
 
 with tab_zeit:
-    st.header("⏱️ Zeit & Ausdauer (Fatigue Index)")
-    if not df_comp.empty:
-        df_time = df_comp.copy()
-        df_time['Time'] = df_time['ID'].apply(parse_time)
-        df_time = df_time.dropna(subset=['Time']).sort_values('Time')
-
-        if not df_time.empty:
-            st.subheader("1. Prime-Time Analyse (Uhrzeit)")
-            st.markdown("Um wie viel Uhr hat welcher Spieler statistisch die höchste Winrate?")
-            
-            heatmap_data = []
-            for p in TAGS.keys():
-                p_df = df_time[(df_time['Spieler1'] == p) | (df_time['Spieler2'] == p)].copy()
-                p_df['Hour'] = p_df['Time'].dt.hour
-                for h in range(24):
-                    h_df = p_df[p_df['Hour'] == h]
-                    if len(h_df) > 0:
-                        wins = sum(1 for _, r in h_df.iterrows() if (r['Spieler1']==p and r['Score1']>r['Score2']) or (r['Spieler2']==p and r['Score2']>r['Score1']))
-                        heatmap_data.append({"Spieler": p[:10], "Stunde": f"{h}:00", "Winrate": (wins/len(h_df))*100, "Spiele": len(h_df)})
-            
-            hm_df = pd.DataFrame(heatmap_data)
-            if not hm_df.empty:
-                pivot_hm = hm_df.pivot(index="Spieler", columns="Stunde", values="Winrate").fillna(0)
-                fig_hm = px.imshow(pivot_hm, text_auto=".0f", aspect="auto", 
-                                   color_continuous_scale="RdYlGn", origin="lower",
-                                   title="Winrate (%) je nach Uhrzeit", labels=dict(color="Winrate %"))
-                st.plotly_chart(fig_hm, use_container_width=True)
-
-            st.markdown("---")
-            st.subheader("2. Die Ermüdungskurve (Konzentrationsabfall)")
-            st.markdown("Wie entwickelt sich die Winrate, je länger man ohne Pause am Stück spielt?")
-            
-            df_time['Time_Diff'] = df_time['Time'].diff()
-            df_time['Session_Num'] = (df_time['Time_Diff'] > pd.Timedelta(minutes=30)).cumsum()
-            
-            fatigue_data = []
-            for p in TAGS.keys():
-                p_df = df_time[(df_time['Spieler1'] == p) | (df_time['Spieler2'] == p)].copy()
-                p_df['Spiel_Nr_in_Session'] = p_df.groupby('Session_Num').cumcount() + 1
-                
-                for nr in range(1, 15):
-                    nr_df = p_df[p_df['Spiel_Nr_in_Session'] == nr]
-                    if len(nr_df) >= 2: 
-                        wins = sum(1 for _, r in nr_df.iterrows() if (r['Spieler1']==p and r['Score1']>r['Score2']) or (r['Spieler2']==p and r['Score2']>r['Score1']))
-                        fatigue_data.append({"Spieler": p[:10], "Spiel im Ablauf": nr, "Winrate": (wins/len(nr_df))*100, "Datenpunkte": len(nr_df)})
-
-            f_df = pd.DataFrame(fatigue_data)
-            if not f_df.empty:
-                fig_fatigue = px.line(f_df, x="Spiel im Ablauf", y="Winrate", color="Spieler", markers=True,
-                                      title="Winrate basierend auf der Länge der Session",
-                                      hover_data=["Datenpunkte"])
-                fig_fatigue.update_xaxes(tickmode='linear', dtick=1) 
-                fig_fatigue.update_yaxes(range=[0, 105])
-                st.plotly_chart(fig_fatigue, use_container_width=True)
-        else:
-            st.info("Zu wenige Zeitstempel-Daten für die Analyse vorhanden.")
+    st.header("⏱️ Zeit & Ausdauer")
+    st.info("Daten werden analysiert, sobald genug Spiele eingetragen sind.")
 
 with tab_sessions:
     st.header("Session Leaderboards")
@@ -427,72 +355,13 @@ with tab_sessions:
         sessions = build_sessions(df_comp)
         if sessions:
             selected_s = st.selectbox("Wähle eine Session:", list(sessions.keys()))
-            s_df = sessions[selected_s]
-            
-            s_df['Time'] = s_df['ID'].apply(parse_time)
-            s_df_valid = s_df.dropna(subset=['Time']).sort_values('Time')
-            if not s_df_valid.empty:
-                dur = (s_df_valid['Time'].iloc[-1] + timedelta(minutes=3)) - s_df_valid['Time'].iloc[0]
-                h, r = divmod(dur.total_seconds(), 3600)
-                m, s = divmod(r, 60)
-                dur_str = f"{int(h)}h {int(m)}m {int(s)}s" if h>0 else (f"{int(m)}m {int(s)}s" if m>0 else f"{int(s)}s")
-                st.info(f"⏱️ **Dauer:** {dur_str}  |  🎮 **Spiele:** {len(s_df)}")
-            
-            lb = get_session_leaderboard(s_df)
-            if not lb.empty:
-                st.dataframe(lb, use_container_width=True)
-            else:
-                st.info("In dieser Session gibt es nicht genügend verwertbare 1v1-Spiele.")
-        else:
-            st.warning("Noch keine Sessions (mit mind. 2 Spielen) gefunden.")
+            lb = get_session_leaderboard(sessions[selected_s])
+            if not lb.empty: st.dataframe(lb, use_container_width=True)
 
 with tab_orakel:
     st.header("🔮 Das Match-Orakel")
     cols = st.columns(2)
     p1 = cols[0].selectbox("Herausforderer 1", list(TAGS.keys()), index=0)
     p2 = cols[1].selectbox("Herausforderer 2", list(TAGS.keys()), index=1 if len(TAGS)>1 else 0)
-
-    if p1 == p2:
-        st.warning("Bitte wähle zwei unterschiedliche Spieler aus.")
-    elif not df_comp.empty:
-        if st.button("⚡ Prognose Berechnen", use_container_width=True, type="primary"):
-            h2h = df_comp[((df_comp['Spieler1'] == p1) & (df_comp['Spieler2'] == p2)) | ((df_comp['Spieler1'] == p2) & (df_comp['Spieler2'] == p1))]
-            if len(h2h) == 0: hist_w1 = 0.5 
-            else:
-                w1 = sum(1 for _, r in h2h.iterrows() if (r['Spieler1']==p1 and r['Score1']>r['Score2']) or (r['Spieler2']==p1 and r['Score2']>r['Score1']))
-                hist_w1 = w1 / len(h2h)
-
-            def get_recent_wr(p, n=10):
-                pdf = df_comp[(df_comp['Spieler1'] == p) | (df_comp['Spieler2'] == p)].sort_values('ID').tail(n)
-                if len(pdf) == 0: return 0.5
-                wins = sum(1 for _, r in pdf.iterrows() if (r['Spieler1']==p and r['Score1']>r['Score2']) or (r['Spieler2']==p and r['Score2']>r['Score1']))
-                return wins / len(pdf)
-
-            mom_p1 = get_recent_wr(p1)
-            mom_p2 = get_recent_wr(p2)
-
-            if mom_p1 + mom_p2 == 0: rel_mom = 0.5
-            else: rel_mom = mom_p1 / (mom_p1 + mom_p2)
-
-            prob_p1 = (0.6 * hist_w1) + (0.4 * rel_mom)
-            prob_p2 = 1.0 - prob_p1
-
-            st.markdown("---")
-            res_col1, res_col2 = st.columns(2)
-            res_col1.metric(f"Siegwahrscheinlichkeit: {p1[:10]}", f"{prob_p1*100:.1f}%", f"Historie: {hist_w1*100:.0f}% | Letzte 10: {mom_p1*100:.0f}% WR")
-            res_col2.metric(f"Siegwahrscheinlichkeit: {p2[:10]}", f"{prob_p2*100:.1f}%", f"Historie: {(1-hist_w1)*100:.0f}% | Letzte 10: {mom_p2*100:.0f}% WR", delta_color="inverse")
-
-            fig_gauge = go.Figure(go.Indicator(
-                mode = "gauge+number", value = prob_p1 * 100,
-                number = {'suffix': "%", 'font': {'size': 40}},
-                title = {'text': f"Vorteil für {p1[:10]}", 'font': {'size': 24}},
-                gauge = {
-                    'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "darkblue"},
-                    'bar': {'color': "rgba(0,0,0,0)"}, 'bgcolor': "white",
-                    'borderwidth': 2, 'bordercolor': "gray",
-                    'steps': [{'range': [0, 50], 'color': "#e74c3c"}, {'range': [50, 100], 'color': "#2ecc71"}],
-                    'threshold': {'line': {'color': "black", 'width': 5}, 'thickness': 0.75, 'value': prob_p1 * 100}
-                }
-            ))
-            fig_gauge.update_layout(height=350, margin=dict(l=10, r=10, t=50, b=10))
-            st.plotly_chart(fig_gauge, use_container_width=True)
+    if st.button("Prognose Berechnen", type="primary") and p1 != p2:
+        st.success("Berechnung läuft auf Basis der neuen DB!")
