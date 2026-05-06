@@ -21,7 +21,7 @@ TAGS = {
 }
 
 # WICHTIG: Füge hier den echten Link aus der Browser-Leiste ein (https://docs...)
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1SZQhK7TeBRI6DspxVJWU31ul_PGTXNOoxcOwE6rn2u8/edit?gid=66925559#gid=66925559"
+SHEET_URL = "HIER_DEN_LINK_ZU_DEINER_GOOGLE_TABELLE_EINFÜGEN"
 
 API_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjhjMzk2MDM1LTgyMzMtNGFhMi04YzVjLTg3NjVmZDliYjE0MSIsImlhdCI6MTc3Nzk4NDU2Niwic3ViIjoiZGV2ZWxvcGVyL2MyYjczNjYyLWE2YjYtNzdkMC00N2I4LTM5YjE0MWYyNzcxOCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyI5Mi4yMDguMjUuMTIiXSwidHlwZSI6ImNsaWVudCJ9XX0.LG_Q_jELSrMoeRPVVU5saPFnNWBrGbzaaaXtl_4HvKEMd-jDBBldJUpLZXQJ2101_tGsxgQ-3bU5tejtmY3wQg"
 
@@ -33,13 +33,12 @@ def init_google_sheets():
     creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     client = gspread.authorize(creds)
     sheet = client.open_by_url(SHEET_URL)
-    # Jetzt laden wir drei Blätter
     return sheet.worksheet("Karten_Data"), sheet.worksheet("Fun_Data"), sheet.worksheet("Profile_Data")
 
 try:
     ws_comp, ws_fun, ws_prof = init_google_sheets()
 except Exception as e:
-    st.error(f"Bin kurz ein drehen bre... ({e})")
+    st.error(f"Fehler bei Google Sheets! ({e})")
     st.stop()
 
 def get_df_from_sheet(worksheet):
@@ -56,63 +55,6 @@ def get_api_data(endpoint, tag):
         res = requests.get(url, headers=headers, timeout=5)
         return res.json() if res.status_code == 200 else None
     except: return None
-
-# --- AUTO-SCANNER (Google Sheets Sync) ---
-def scan_for_battles():
-    df_comp = get_df_from_sheet(ws_comp)
-    df_fun = get_df_from_sheet(ws_fun)
-
-    new_comp_rows, new_fun_rows, profile_rows = [], [], []
-    known_comp_ids = set(df_comp['ID'].astype(str)) if not df_comp.empty else set()
-    known_fun_ids = set(df_fun['ID'].astype(str)) if not df_fun.empty else set()
-
-    for name, tag in TAGS.items():
-        # 1. Spieler-Profil abrufen und für die DB speichern
-        api_prof = get_api_data("", tag)
-        if api_prof:
-            profile_rows.append([
-                name, 
-                api_prof.get('trophies', 0),
-                api_prof.get('bestTrophies', 0),
-                api_prof.get('battleCount', 0),
-                api_prof.get('wins', 0),
-                api_prof.get('losses', 0),
-                api_prof.get('threeCrownWins', 0)
-            ])
-
-        # 2. Kampflog abrufen
-        log = get_api_data("battlelog", tag)
-        if not log: continue
-        for b in log:
-            b_id = b.get('battleTime')
-            opp_tag = b['opponent'][0].get('tag', '').replace('#', '')
-            rival = next((n for n, t in TAGS.items() if t == opp_tag), None)
-            
-            if rival:
-                s1, s2 = b['team'][0]['crowns'], b['opponent'][0]['crowns']
-                k1 = ", ".join([c['name'] for c in b['team'][0]['cards']]) if 'cards' in b['team'][0] else ""
-                k2 = ", ".join([c['name'] for c in b['opponent'][0]['cards']]) if 'cards' in b['opponent'][0] else ""
-                row_data = [b_id, name, rival, s1, s2, k1, k2]
-
-                if b_id not in known_fun_ids:
-                    new_fun_rows.append(row_data)
-                    known_fun_ids.add(b_id)
-
-                is_solo = len(b.get('team', [])) == 1 and len(b.get('opponent', [])) == 1
-                is_own_deck = b.get('deckSelection', 'collection') == 'collection'
-                if is_solo and is_own_deck and b_id not in known_comp_ids:
-                    new_comp_rows.append(row_data)
-                    known_comp_ids.add(b_id)
-
-    # In Tabellen schreiben
-    if new_comp_rows: ws_comp.append_rows(new_comp_rows)
-    if new_fun_rows: ws_fun.append_rows(new_fun_rows)
-    if profile_rows:
-        ws_prof.clear()
-        ws_prof.append_row(["Spieler", "Trophies", "Max_Trophies", "Matches", "Wins", "Losses", "Three_Crowns"])
-        ws_prof.append_rows(profile_rows)
-    
-    return len(new_comp_rows), len(new_fun_rows)
 
 # --- HELFER FUNKTIONEN ---
 def calculate_card_stats(spieler, df):
@@ -197,6 +139,70 @@ def calc_nemesis_kryptonit(df):
             nemesis_data.append({"Spieler": p[:10], "💀 Nemesis": f"{nemesis[0]} ({n_wr:.0f}%)", "☢️ Kryptonit-Karte": f"{krypt[0]} ({krypt[1]}x verloren)"})
     return pd.DataFrame(nemesis_data)
 
+# --- NEU: ALGORITHMUS FÜR BUCHMACHER QUOTEN ---
+def get_player_form_and_streak(player, df):
+    # Form aus den letzten 15 Spielen
+    p_df = df[(df['Spieler1'] == player) | (df['Spieler2'] == player)].sort_values('ID').tail(15)
+    if p_df.empty: return 0, 0
+    wins = 0
+    streak = 0
+    is_win_streak = None
+    
+    for _, r in p_df.iterrows():
+        is_p1 = r['Spieler1'] == player
+        p_won = (r['Score1'] > r['Score2']) if is_p1 else (r['Score2'] > r['Score1'])
+        if p_won:
+            wins += 1
+            if is_win_streak in (None, True): streak += 1; is_win_streak = True
+            else: streak = 1; is_win_streak = True
+        else:
+            if is_win_streak in (None, False): streak += 1; is_win_streak = False
+            else: streak = 1; is_win_streak = False
+                
+    net_wins = wins - (len(p_df) - wins)
+    actual_streak = streak if is_win_streak else -streak
+    return net_wins, actual_streak
+
+def calc_matchup_odds(p1, p2, df):
+    # H2H Stats (Der Kern der Wahrscheinlichkeit)
+    match_df = df[((df['Spieler1'] == p1) & (df['Spieler2'] == p2)) | ((df['Spieler1'] == p2) & (df['Spieler2'] == p1))]
+    total_h2h = len(match_df)
+    
+    p1_h2h_wins = sum(1 for _, r in match_df.iterrows() if (r['Spieler1']==p1 and r['Score1']>r['Score2']) or (r['Spieler2']==p1 and r['Score2']>r['Score1']))
+    p1_h2h_wr = (p1_h2h_wins / total_h2h * 100) if total_h2h > 0 else 50
+    p2_h2h_wr = 100 - p1_h2h_wr if total_h2h > 0 else 50
+    
+    # Bonuspunkte aus H2H
+    h2h_bonus_p1 = (p1_h2h_wr - 50) * 1.5 
+    h2h_bonus_p2 = (p2_h2h_wr - 50) * 1.5
+    
+    # Form & Streak holen
+    f1, s1 = get_player_form_and_streak(p1, df)
+    f2, s2 = get_player_form_and_streak(p2, df)
+    
+    # Basis Punkte: 100 + Boni
+    score_p1 = max(10, 100 + h2h_bonus_p1 + (f1 * 2) + (s1 * 4))
+    score_p2 = max(10, 100 + h2h_bonus_p2 + (f2 * 2) + (s2 * 4))
+    
+    prob_1 = score_p1 / (score_p1 + score_p2)
+    prob_2 = score_p2 / (score_p1 + score_p2)
+    
+    # Quoten berechnen (mit leichtem Buchmacher-Cap)
+    odds_1 = max(1.01, round(1 / prob_1, 2))
+    odds_2 = max(1.01, round(1 / prob_2, 2))
+    
+    # Insight-Text generieren
+    insight = "⚔️ Ausgeglichenes Match auf dem Papier."
+    if total_h2h == 0: insight = "🆕 Erstes Aufeinandertreffen!"
+    elif p1_h2h_wr > 50 and s2 >= 3: insight = f"📊 {p1} dominiert H2H, aber {p2} hat eine heiße {s2}x Winstreak!"
+    elif p2_h2h_wr > 50 and s1 >= 3: insight = f"📊 {p2} dominiert H2H, aber {p1} hat eine heiße {s1}x Winstreak!"
+    elif f1 > f2 + 4: insight = f"🔥 {p1} hat momentan die deutlich bessere Formkurve."
+    elif f2 > f1 + 4: insight = f"🔥 {p2} hat momentan die deutlich bessere Formkurve."
+    elif p1_h2h_wr >= 70: insight = f"💀 {p1} ist ein absoluter Albtraum für {p2}."
+    elif p2_h2h_wr >= 70: insight = f"💀 {p2} ist ein absoluter Albtraum für {p1}."
+    
+    return prob_1*100, prob_2*100, odds_1, odds_2, insight
+
 # --- SESSION LOGIK ---
 def parse_time(id_str):
     if str(id_str).startswith("LEGACY") or str(id_str).startswith("MANUAL"): return pd.NaT
@@ -264,9 +270,7 @@ def get_session_leaderboard(session_df):
             "WR": f"{wr*100:.0f}%", "Max Streaks": f"+{data['max_w_streak']} / -{data['max_l_streak']}", "Rating (KotH)": round(final_rating, 1)
         })
         
-    if not leaderboard:
-        return pd.DataFrame()
-        
+    if not leaderboard: return pd.DataFrame()
     df_lb = pd.DataFrame(leaderboard).sort_values(by="Rating (KotH)", ascending=False).reset_index(drop=True)
     df_lb.index = df_lb.index + 1
     return df_lb
@@ -279,26 +283,22 @@ df_prof = get_df_from_sheet(ws_prof)
 st.sidebar.title("🎮 Clash Analyzer Pro")
 st.sidebar.markdown("---")
 
-if st.sidebar.button("🔄 Neue Spiele suchen", use_container_width=True, type="primary"):
-    with st.spinner("Scanne API & synchronisiere mit Google Sheets..."):
-        c, f = scan_for_battles()
-        st.sidebar.success(f"{c} Kompetitiv / {f} Fun neu in der Tabelle!")
-        st.rerun()
-
-st.sidebar.markdown(f"*Letztes Update: {datetime.now().strftime('%H:%M:%S')}*")
+# Notfall-Sync Button
+if st.sidebar.button("🔄 Manueller Sync", use_container_width=True):
+    st.sidebar.warning("Nutze deinen lokalen Bot für Live-Daten!")
+    
 st.sidebar.markdown("---")
 st.sidebar.subheader("🛠️ DB Status")
 st.sidebar.write(f"Gespeicherte Duelle: {len(df_comp)}")
 
 # Tabs 
-tab_dbl, tab_spieler, tab_dbf, tab_nemesis, tab_trends, tab_zeit, tab_sessions, tab_orakel = st.tabs([
-    "⚔️ DBL (1v1)", "👤 Spieler", "🎉 DBF (Fun)", "💀 Nemesis", "📈 Trends", "⏱️ Zeit & Ausdauer", "🏆 Sessions", "🔮 Orakel"
+tab_dbl, tab_spieler, tab_dbf, tab_nemesis, tab_trends, tab_zeit, tab_sessions, tab_prognose = st.tabs([
+    "⚔️ DBL (1v1)", "👤 Spieler", "🎉 DBF (Fun)", "💀 Nemesis", "📈 Trends", "⏱️ Zeit & Ausdauer", "🏆 Sessions", "🎲 Prognose"
 ])
 
 with tab_dbl:
     st.header("Lokal 1v1 Dashboard")
     if not df_comp.empty:
-        # 1. DATEN FÜR LEADERBOARD BERECHNEN
         lb_data = []
         for p in TAGS.keys():
             p_df = df_comp[(df_comp['Spieler1'] == p) | (df_comp['Spieler2'] == p)]
@@ -317,18 +317,15 @@ with tab_dbl:
                     "Winrate (%)": round(winrate, 1)
                 })
         
-        # 2. LEADERBOARD TABELLE ANZEIGEN
         if lb_data:
             st.subheader("🏆 All-Time Leaderboard")
-            df_lb = pd.DataFrame(lb_data)
-            df_lb = df_lb.sort_values(by=["Winrate (%)", "Net-Wins"], ascending=[False, False]).reset_index(drop=True)
+            df_lb = pd.DataFrame(lb_data).sort_values(by=["Winrate (%)", "Net-Wins"], ascending=[False, False]).reset_index(drop=True)
             df_lb.index = df_lb.index + 1
             df_lb.index.name = "Rang"
             st.dataframe(df_lb, use_container_width=True)
 
         st.markdown("---")
         
-        # 3. HEAD-TO-HEAD & STREAKS
         h2h_df, curr_streak, at_streak = get_h2h_stats_data(df_comp)
         col1, col2 = st.columns(2)
         col1.metric("🔥 Aktuelle Winstreak", f"{curr_streak['count']}x", curr_streak['player'])
@@ -337,37 +334,19 @@ with tab_dbl:
         
         st.markdown("---")
 
-        # 4. RACE TO 200 (ABSOLUTE SIEGE)
         if lb_data:
             c1, c2 = st.columns(2)
             with c1:
                 st.subheader("🏁 Race to 200 (Erster bei 200 Siegen)")
-                fig_race = px.bar(
-                    df_lb, 
-                    x='Spieler', 
-                    y='Siege', 
-                    text_auto=True, 
-                    color='Spieler',
-                    title="Absolute Siege (Ziel: 200)"
-                )
+                fig_race = px.bar(df_lb, x='Spieler', y='Siege', text_auto=True, color='Spieler', title="Absolute Siege")
                 fig_race.update_layout(yaxis=dict(range=[0, 200]), showlegend=False, margin=dict(t=40, b=0, l=0, r=0))
                 st.plotly_chart(fig_race, use_container_width=True)
                 
-            # 5. HISTOGRAMM (WINS x / 100)
             with c2:
                 st.subheader("📊 Performance-Vergleich (0 - 100%)")
-                fig_wr = px.bar(
-                    df_lb, 
-                    x='Spieler', 
-                    y='Winrate (%)', 
-                    text_auto='.1f', 
-                    color='Spieler',
-                    title="Winrate Histogramm"
-                )
+                fig_wr = px.bar(df_lb, x='Spieler', y='Winrate (%)', text_auto='.1f', color='Spieler', title="Winrate Histogramm")
                 fig_wr.update_layout(yaxis=dict(range=[0, 100]), showlegend=False, margin=dict(t=40, b=0, l=0, r=0))
                 st.plotly_chart(fig_wr, use_container_width=True)
-    else:
-        st.info("Noch keine Daten in der Google Tabelle gefunden.")
 
 with tab_spieler:
     st.header("👤 All-Time Spieler Profile")
@@ -375,8 +354,6 @@ with tab_spieler:
     for idx, (name, tag) in enumerate(TAGS.items()):
         with cols[idx % 3]:
             st.subheader(f"🛡️ {name}")
-            
-            # 1. GLOBALE API STATISTIKEN (Jetzt aus Google Sheets!)
             if not df_prof.empty and name in df_prof['Spieler'].values:
                 p_data = df_prof[df_prof['Spieler'] == name].iloc[0]
                 matches = p_data['Matches']
@@ -392,33 +369,23 @@ with tab_spieler:
                 st.write(f"📊 **Global WR:** {wr_global:.1f}%")
                 st.write(f"👑 **3-Kronen:** {three_crowns} *(Das sind {three_crown_rate:.1f}% aller Siege!)*")
             else:
-                st.warning("*(Profil noch nicht in der Datenbank. Bitte einmal am PC auf 'Neue Spiele suchen' klicken!)*")
+                st.warning("*(Profil-Daten fehlen. Bot muss laufen!)*")
             
             st.markdown("---")
             
-            # 2. LETZTE 5 SPIELE KAMPFLOG (LOKAL)
             p_df = df_comp[(df_comp['Spieler1'] == name) | (df_comp['Spieler2'] == name)].sort_values('ID')
             if not p_df.empty:
                 st.markdown(f"**📜 Letzte 5 Spiele (vs. Crew):**")
-                # Wir nehmen die letzten 5 Einträge und drehen sie um (neueste zuerst)
                 for _, r in p_df.tail(5).iloc[::-1].iterrows():
                     is_p1 = r['Spieler1'] == name
                     opp = r['Spieler2'] if is_p1 else r['Spieler1']
                     s_me = r['Score1'] if is_p1 else r['Score2']
                     s_opp = r['Score2'] if is_p1 else r['Score1']
-                    
-                    if s_me > s_opp:
-                        res_icon = "🟢 Sieg"
-                    elif s_me < s_opp:
-                        res_icon = "🔴 Ndl"
-                    else:
-                        res_icon = "⚪ Remis"
-                        
+                    res_icon = "🟢 Sieg" if s_me > s_opp else ("🔴 Ndl" if s_me < s_opp else "⚪ Remis")
                     st.write(f"{res_icon} vs **{opp}** ({s_me}:{s_opp})")
             
             st.markdown("---")
             
-            # 3. KARTEN STATISTIKEN
             top_u, top_w = calculate_card_stats(name, df_comp)
             if not top_u.empty:
                 st.markdown("**🃏 Meistgespielte Karten:**")
@@ -468,41 +435,23 @@ with tab_zeit:
         if not df_time.empty:
             df_time['Wochentag'] = df_time['Time'].dt.day_name()
             df_time['Stunde'] = df_time['Time'].dt.hour
-            
-            day_map = {
-                "Monday": "Montag", "Tuesday": "Dienstag", "Wednesday": "Mittwoch", 
-                "Thursday": "Donnerstag", "Friday": "Freitag", "Saturday": "Samstag", "Sunday": "Sonntag"
-            }
+            day_map = {"Monday": "Montag", "Tuesday": "Dienstag", "Wednesday": "Mittwoch", "Thursday": "Donnerstag", "Friday": "Freitag", "Saturday": "Samstag", "Sunday": "Sonntag"}
             df_time['Wochentag'] = df_time['Wochentag'].map(day_map)
             
             heatmap_data = df_time.groupby(['Wochentag', 'Stunde']).size().reset_index(name='Spiele')
             pivot_data = heatmap_data.pivot(index='Wochentag', columns='Stunde', values='Spiele').fillna(0)
             
-            # Raster auffüllen (alle Tage und 24 Stunden erzwingen)
             days_order = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
             for d in days_order:
                 if d not in pivot_data.index: pivot_data.loc[d] = 0
             pivot_data = pivot_data.reindex(days_order)
-            
             for h in range(24):
                 if h not in pivot_data.columns: pivot_data[h] = 0
             pivot_data = pivot_data[list(range(24))]
             
-            fig_heat = px.imshow(
-                pivot_data, 
-                labels=dict(x="Uhrzeit", y="Wochentag", color="Spiele"), 
-                x=list(range(24)),
-                y=days_order,
-                color_continuous_scale="Inferno", 
-                aspect="auto",
-                title="🔥 Aktivitäts-Heatmap (Wann zockt ihr am meisten?)"
-            )
+            fig_heat = px.imshow(pivot_data, labels=dict(x="Uhrzeit", y="Wochentag", color="Spiele"), x=list(range(24)), y=days_order, color_continuous_scale="Inferno", aspect="auto", title="🔥 Aktivitäts-Heatmap")
             fig_heat.update_xaxes(dtick=1)
             st.plotly_chart(fig_heat, use_container_width=True)
-        else:
-            st.info("Spiele haben noch keine korrekten Zeitstempel (Die alten manuellen CSV-Daten haben keine Uhrzeit).")
-    else:
-        st.info("Keine Daten vorhanden.")
 
 with tab_sessions:
     st.header("Session Leaderboards")
@@ -524,10 +473,34 @@ with tab_sessions:
             lb = get_session_leaderboard(s_df)
             if not lb.empty: st.dataframe(lb, use_container_width=True)
 
-with tab_orakel:
-    st.header("🔮 Das Match-Orakel")
-    cols = st.columns(2)
-    p1 = cols[0].selectbox("Herausforderer 1", list(TAGS.keys()), index=0)
-    p2 = cols[1].selectbox("Herausforderer 2", list(TAGS.keys()), index=1 if len(TAGS)>1 else 0)
-    if st.button("Prognose Berechnen", type="primary") and p1 != p2:
-        st.success("Berechnung läuft auf Basis der neuen DB!")
+with tab_prognose:
+    st.header("🎲 Live-Wettquoten (Prognose)")
+    st.markdown("Basierend auf historischem Head-to-Head, aktueller Formkurve und Winstreaks berechnet das System die Wahrscheinlichkeiten für die nächsten Duelle.")
+    
+    if df_comp.empty:
+        st.warning("Noch keine Spieldaten für Prognosen vorhanden.")
+    else:
+        pairs = list(itertools.combinations(TAGS.keys(), 2))
+        
+        # Zeige alle möglichen Matchups in einem Grid an
+        cols = st.columns(3)
+        for idx, (p1, p2) in enumerate(pairs):
+            with cols[idx % 3]:
+                st.subheader(f"{p1} vs {p2}")
+                
+                prob1, prob2, odds1, odds2, insight = calc_matchup_odds(p1, p2, df_comp)
+                
+                # Quoten-Anzeige (wie beim Buchmacher)
+                st.markdown(f"""
+                <div style='background-color: #1E1E1E; padding: 15px; border-radius: 10px; text-align: center; border: 1px solid #444;'>
+                    <h3 style='margin:0;'>Quote: {odds1:.2f} <span style='color:#888;'>-</span> {odds2:.2f}</h3>
+                    <p style='margin:5px 0 0 0; color:#AAA;'>Wahrscheinlichkeit: {prob1:.0f}% zu {prob2:.0f}%</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Progress-Bar als optische Waage
+                st.progress(int(prob1))
+                
+                # Der "Insider-Tipp"
+                st.info(insight)
+                st.markdown("---")
