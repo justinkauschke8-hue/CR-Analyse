@@ -14,13 +14,13 @@ from google.oauth2.service_account import Credentials
 st.set_page_config(page_title="Clash Analyzer Pro", page_icon="🏆", layout="wide")
 
 # --- KONFIGURATION & HARDCODED TAGS ---
-# WICHTIG: Deine echten In-Game Namen
 TAGS = {
     "resan": "R902QGYCP",
     "gooterplayer": "VCGLJU02",
     "Jörg": "YY89R9L9G"
 }
 
+# WICHTIG: Füge hier den echten Link aus der Browser-Leiste ein (https://docs...)
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1SZQhK7TeBRI6DspxVJWU31ul_PGTXNOoxcOwE6rn2u8/edit?gid=67403884#gid=67403884"
 
 API_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjhjMzk2MDM1LTgyMzMtNGFhMi04YzVjLTg3NjVmZDliYjE0MSIsImlhdCI6MTc3Nzk4NDU2Niwic3ViIjoiZGV2ZWxvcGVyL2MyYjczNjYyLWE2YjYtNzdkMC00N2I4LTM5YjE0MWYyNzcxOCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyI5Mi4yMDguMjUuMTIiXSwidHlwZSI6ImNsaWVudCJ9XX0.LG_Q_jELSrMoeRPVVU5saPFnNWBrGbzaaaXtl_4HvKEMd-jDBBldJUpLZXQJ2101_tGsxgQ-3bU5tejtmY3wQg"
@@ -278,7 +278,7 @@ tab_dbl, tab_spieler, tab_dbf, tab_nemesis, tab_trends, tab_zeit, tab_sessions, 
 with tab_dbl:
     st.header("Lokal 1v1 Dashboard")
     if not df_comp.empty:
-        # --- 1. DATEN FÜR LEADERBOARD BERECHNEN ---
+        # 1. DATEN FÜR LEADERBOARD BERECHNEN
         lb_data = []
         for p in TAGS.keys():
             p_df = df_comp[(df_comp['Spieler1'] == p) | (df_comp['Spieler2'] == p)]
@@ -297,19 +297,18 @@ with tab_dbl:
                     "Winrate (%)": round(winrate, 1)
                 })
         
-        # --- 2. LEADERBOARD TABELLE ANZEIGEN ---
+        # 2. LEADERBOARD TABELLE ANZEIGEN
         if lb_data:
             st.subheader("🏆 All-Time Leaderboard")
-            # Sortieren: Erst nach Winrate, bei Gleichstand nach Net-Wins
             df_lb = pd.DataFrame(lb_data)
             df_lb = df_lb.sort_values(by=["Winrate (%)", "Net-Wins"], ascending=[False, False]).reset_index(drop=True)
-            df_lb.index = df_lb.index + 1  # Ränge bei 1 starten (statt 0)
+            df_lb.index = df_lb.index + 1
             df_lb.index.name = "Rang"
             st.dataframe(df_lb, use_container_width=True)
 
         st.markdown("---")
         
-        # --- 3. HEAD-TO-HEAD & STREAKS ---
+        # 3. HEAD-TO-HEAD & STREAKS
         h2h_df, curr_streak, at_streak = get_h2h_stats_data(df_comp)
         col1, col2 = st.columns(2)
         col1.metric("🔥 Aktuelle Winstreak", f"{curr_streak['count']}x", curr_streak['player'])
@@ -318,41 +317,91 @@ with tab_dbl:
         
         st.markdown("---")
 
-        # --- 4. HISTOGRAMM (WINS x / 100) ---
+        # 4. RACE TO 200 (ABSOLUTE SIEGE)
         if lb_data:
-            st.subheader("📊 Winrate Histogramm (Wins pro 100 Spiele)")
-            fig = px.bar(
-                df_lb, 
-                x='Spieler', 
-                y='Winrate (%)', 
-                text_auto='.1f', 
-                color='Spieler',
-                title="Performance-Vergleich (0 - 100%)"
-            )
-            # Y-Achse hart auf Skala von 0 bis 100 zwingen
-            fig.update_layout(
-                yaxis=dict(range=[0, 100]), 
-                showlegend=False,
-                margin=dict(t=40, b=0, l=0, r=0)
-            )
-            st.plotly_chart(fig, use_container_width=True)
+            c1, c2 = st.columns(2)
+            with c1:
+                st.subheader("🏁 Race to 200 (Erster bei 200 Siegen)")
+                fig_race = px.bar(
+                    df_lb, 
+                    x='Spieler', 
+                    y='Siege', 
+                    text_auto=True, 
+                    color='Spieler',
+                    title="Absolute Siege (Ziel: 200)"
+                )
+                fig_race.update_layout(yaxis=dict(range=[0, 200]), showlegend=False, margin=dict(t=40, b=0, l=0, r=0))
+                st.plotly_chart(fig_race, use_container_width=True)
+                
+            # 5. HISTOGRAMM (WINS x / 100)
+            with c2:
+                st.subheader("📊 Performance-Vergleich (0 - 100%)")
+                fig_wr = px.bar(
+                    df_lb, 
+                    x='Spieler', 
+                    y='Winrate (%)', 
+                    text_auto='.1f', 
+                    color='Spieler',
+                    title="Winrate Histogramm"
+                )
+                fig_wr.update_layout(yaxis=dict(range=[0, 100]), showlegend=False, margin=dict(t=40, b=0, l=0, r=0))
+                st.plotly_chart(fig_wr, use_container_width=True)
     else:
         st.info("Noch keine Daten in der Google Tabelle gefunden.")
 
 with tab_spieler:
-    st.header("Spieler Profile")
+    st.header("👤 All-Time Spieler Profile")
     cols = st.columns(3)
     for idx, (name, tag) in enumerate(TAGS.items()):
         with cols[idx % 3]:
-            st.subheader(name[:10])
+            st.subheader(f"🛡️ {name}")
             api = get_api_data("", tag)
-            if api:
-                st.write(f"🏆 **Trophäen:** {api.get('trophies', 0)}")
-                st.write(f"⚔️ **Siege:** {api.get('wins',0)}")
             
+            # 1. GLOBALE API STATISTIKEN
+            if api:
+                matches = api.get('battleCount', 0)
+                wins = api.get('wins', 0)
+                losses = api.get('losses', 0)
+                three_crowns = api.get('threeCrownWins', 0)
+                wr_global = (wins / matches * 100) if matches > 0 else 0
+                three_crown_rate = (three_crowns / wins * 100) if wins > 0 else 0
+                
+                st.markdown("**🌍 Globale Account-Stats:**")
+                st.write(f"🏆 **Trophäen:** {api.get('trophies', 0)} (Max: {api.get('bestTrophies', 0)})")
+                st.write(f"⚔️ **Matches:** {matches} | ✅ **Wins:** {wins} | ❌ **Losses:** {losses}")
+                st.write(f"📊 **Global WR:** {wr_global:.1f}%")
+                st.write(f"👑 **3-Kronen:** {three_crowns} *(Das sind {three_crown_rate:.1f}% aller Siege!)*")
+            else:
+                st.write("*(Globale API-Daten gerade nicht erreichbar)*")
+            
+            st.markdown("---")
+            
+            # 2. LETZTE 5 SPIELE KAMPFLOG (LOKAL)
+            p_df = df_comp[(df_comp['Spieler1'] == name) | (df_comp['Spieler2'] == name)].sort_values('ID')
+            if not p_df.empty:
+                st.markdown(f"**📜 Letzte 5 Spiele (vs. Crew):**")
+                # Wir nehmen die letzten 5 Einträge und drehen sie um (neueste zuerst)
+                for _, r in p_df.tail(5).iloc[::-1].iterrows():
+                    is_p1 = r['Spieler1'] == name
+                    opp = r['Spieler2'] if is_p1 else r['Spieler1']
+                    s_me = r['Score1'] if is_p1 else r['Score2']
+                    s_opp = r['Score2'] if is_p1 else r['Score1']
+                    
+                    if s_me > s_opp:
+                        res_icon = "🟢 Sieg"
+                    elif s_me < s_opp:
+                        res_icon = "🔴 Ndl"
+                    else:
+                        res_icon = "⚪ Remis"
+                        
+                    st.write(f"{res_icon} vs **{opp}** ({s_me}:{s_opp})")
+            
+            st.markdown("---")
+            
+            # 3. KARTEN STATISTIKEN
             top_u, top_w = calculate_card_stats(name, df_comp)
             if not top_u.empty:
-                st.markdown("**Meistgespielte Karten:**")
+                st.markdown("**🃏 Meistgespielte Karten:**")
                 st.dataframe(top_u, hide_index=True, use_container_width=True)
 
 with tab_dbf:
@@ -399,7 +448,20 @@ with tab_sessions:
         sessions = build_sessions(df_comp)
         if sessions:
             selected_s = st.selectbox("Wähle eine Session:", list(sessions.keys()))
-            lb = get_session_leaderboard(sessions[selected_s])
+            s_df = sessions[selected_s].copy()
+            
+            # --- ZUSATZ: ABSOLUTE MINUTENZEITEN ---
+            s_df['Time'] = s_df['ID'].apply(parse_time)
+            s_df_valid = s_df.dropna(subset=['Time']).sort_values('Time')
+            if not s_df_valid.empty:
+                # Wir berechnen die Differenz vom ersten bis zum letzten Spiel + 3 Minuten für das letzte Match
+                dur = (s_df_valid['Time'].iloc[-1] + timedelta(minutes=3)) - s_df_valid['Time'].iloc[0]
+                h, r = divmod(dur.total_seconds(), 3600)
+                m, s = divmod(r, 60)
+                dur_str = f"{int(h)}h {int(m)}m {int(s)}s" if h>0 else (f"{int(m)}m {int(s)}s" if m>0 else f"{int(s)}s")
+                st.info(f"⏱️ **Dauer der Session:** {dur_str}  |  🎮 **Spiele:** {len(s_df)}")
+            
+            lb = get_session_leaderboard(s_df)
             if not lb.empty: st.dataframe(lb, use_container_width=True)
 
 with tab_orakel:
