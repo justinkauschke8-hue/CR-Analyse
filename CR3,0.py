@@ -39,7 +39,7 @@ def init_google_sheets():
 try:
     ws_comp, ws_fun, ws_prof = init_google_sheets()
 except Exception as e:
-    st.error(f"Resan hat Eichelschimmel ({e})")
+    st.error(f"Bin kurz ein drehen bre... ({e})")
     st.stop()
 
 def get_df_from_sheet(worksheet):
