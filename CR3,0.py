@@ -21,7 +21,7 @@ TAGS = {
 }
 
 # WICHTIG: Füge hier den echten Link aus der Browser-Leiste ein (https://docs...)
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1SZQhK7TeBRI6DspxVJWU31ul_PGTXNOoxcOwE6rn2u8/edit?gid=67403884#gid=67403884"
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1SZQhK7TeBRI6DspxVJWU31ul_PGTXNOoxcOwE6rn2u8/edit?gid=66925559#gid=66925559"
 
 API_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjhjMzk2MDM1LTgyMzMtNGFhMi04YzVjLTg3NjVmZDliYjE0MSIsImlhdCI6MTc3Nzk4NDU2Niwic3ViIjoiZGV2ZWxvcGVyL2MyYjczNjYyLWE2YjYtNzdkMC00N2I4LTM5YjE0MWYyNzcxOCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyI5Mi4yMDguMjUuMTIiXSwidHlwZSI6ImNsaWVudCJ9XX0.LG_Q_jELSrMoeRPVVU5saPFnNWBrGbzaaaXtl_4HvKEMd-jDBBldJUpLZXQJ2101_tGsxgQ-3bU5tejtmY3wQg"
 
@@ -33,19 +33,19 @@ def init_google_sheets():
     creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     client = gspread.authorize(creds)
     sheet = client.open_by_url(SHEET_URL)
-    return sheet.worksheet("Karten_Data"), sheet.worksheet("Fun_Data")
+    # Jetzt laden wir drei Blätter
+    return sheet.worksheet("Karten_Data"), sheet.worksheet("Fun_Data"), sheet.worksheet("Profile_Data")
 
 try:
-    ws_comp, ws_fun = init_google_sheets()
+    ws_comp, ws_fun, ws_prof = init_google_sheets()
 except Exception as e:
-    st.error(f"Fehler bei der Verbindung zu Google Sheets. Bitte überprüfe die Secrets und den Link! ({e})")
+    st.error(f"Fehler bei Google Sheets! Hast du den neuen Reiter 'Profile_Data' angelegt? ({e})")
     st.stop()
 
 def get_df_from_sheet(worksheet):
     data = worksheet.get_all_records()
-    if data:
-        return pd.DataFrame(data)
-    return pd.DataFrame(columns=["ID", "Spieler1", "Spieler2", "Score1", "Score2", "Karten1", "Karten2"])
+    if data: return pd.DataFrame(data)
+    return pd.DataFrame()
 
 # --- API LOGIK ---
 @st.cache_data(ttl=60)
@@ -62,11 +62,25 @@ def scan_for_battles():
     df_comp = get_df_from_sheet(ws_comp)
     df_fun = get_df_from_sheet(ws_fun)
 
-    new_comp_rows, new_fun_rows = [], []
+    new_comp_rows, new_fun_rows, profile_rows = [], [], []
     known_comp_ids = set(df_comp['ID'].astype(str)) if not df_comp.empty else set()
     known_fun_ids = set(df_fun['ID'].astype(str)) if not df_fun.empty else set()
 
     for name, tag in TAGS.items():
+        # 1. Spieler-Profil abrufen und für die DB speichern
+        api_prof = get_api_data("", tag)
+        if api_prof:
+            profile_rows.append([
+                name, 
+                api_prof.get('trophies', 0),
+                api_prof.get('bestTrophies', 0),
+                api_prof.get('battleCount', 0),
+                api_prof.get('wins', 0),
+                api_prof.get('losses', 0),
+                api_prof.get('threeCrownWins', 0)
+            ])
+
+        # 2. Kampflog abrufen
         log = get_api_data("battlelog", tag)
         if not log: continue
         for b in log:
@@ -90,8 +104,13 @@ def scan_for_battles():
                     new_comp_rows.append(row_data)
                     known_comp_ids.add(b_id)
 
+    # In Tabellen schreiben
     if new_comp_rows: ws_comp.append_rows(new_comp_rows)
     if new_fun_rows: ws_fun.append_rows(new_fun_rows)
+    if profile_rows:
+        ws_prof.clear()
+        ws_prof.append_row(["Spieler", "Trophies", "Max_Trophies", "Matches", "Wins", "Losses", "Three_Crowns"])
+        ws_prof.append_rows(profile_rows)
     
     return len(new_comp_rows), len(new_fun_rows)
 
@@ -255,6 +274,7 @@ def get_session_leaderboard(session_df):
 # --- UI & LAYOUT ---
 df_comp = get_df_from_sheet(ws_comp)
 df_fun = get_df_from_sheet(ws_fun)
+df_prof = get_df_from_sheet(ws_prof)
 
 st.sidebar.title("🎮 Clash Analyzer Pro")
 st.sidebar.markdown("---")
@@ -355,24 +375,24 @@ with tab_spieler:
     for idx, (name, tag) in enumerate(TAGS.items()):
         with cols[idx % 3]:
             st.subheader(f"🛡️ {name}")
-            api = get_api_data("", tag)
             
-            # 1. GLOBALE API STATISTIKEN
-            if api:
-                matches = api.get('battleCount', 0)
-                wins = api.get('wins', 0)
-                losses = api.get('losses', 0)
-                three_crowns = api.get('threeCrownWins', 0)
+            # 1. GLOBALE API STATISTIKEN (Jetzt aus Google Sheets!)
+            if not df_prof.empty and name in df_prof['Spieler'].values:
+                p_data = df_prof[df_prof['Spieler'] == name].iloc[0]
+                matches = p_data['Matches']
+                wins = p_data['Wins']
+                losses = p_data['Losses']
+                three_crowns = p_data['Three_Crowns']
                 wr_global = (wins / matches * 100) if matches > 0 else 0
                 three_crown_rate = (three_crowns / wins * 100) if wins > 0 else 0
                 
                 st.markdown("**🌍 Globale Account-Stats:**")
-                st.write(f"🏆 **Trophäen:** {api.get('trophies', 0)} (Max: {api.get('bestTrophies', 0)})")
+                st.write(f"🏆 **Trophäen:** {p_data['Trophies']} (Max: {p_data['Max_Trophies']})")
                 st.write(f"⚔️ **Matches:** {matches} | ✅ **Wins:** {wins} | ❌ **Losses:** {losses}")
                 st.write(f"📊 **Global WR:** {wr_global:.1f}%")
                 st.write(f"👑 **3-Kronen:** {three_crowns} *(Das sind {three_crown_rate:.1f}% aller Siege!)*")
             else:
-                st.write("*(Globale API-Daten gerade nicht erreichbar)*")
+                st.warning("*(Profil noch nicht in der Datenbank. Bitte einmal am PC auf 'Neue Spiele suchen' klicken!)*")
             
             st.markdown("---")
             
@@ -439,8 +459,50 @@ with tab_trends:
             st.plotly_chart(fig, use_container_width=True)
 
 with tab_zeit:
-    st.header("⏱️ Zeit & Ausdauer")
-    st.info("Daten werden analysiert, sobald genug Spiele eingetragen sind.")
+    st.header("⏱️ Zeit & Ausdauer (Heatmap)")
+    if not df_comp.empty:
+        df_time = df_comp.copy()
+        df_time['Time'] = df_time['ID'].apply(parse_time)
+        df_time = df_time.dropna(subset=['Time'])
+        
+        if not df_time.empty:
+            df_time['Wochentag'] = df_time['Time'].dt.day_name()
+            df_time['Stunde'] = df_time['Time'].dt.hour
+            
+            day_map = {
+                "Monday": "Montag", "Tuesday": "Dienstag", "Wednesday": "Mittwoch", 
+                "Thursday": "Donnerstag", "Friday": "Freitag", "Saturday": "Samstag", "Sunday": "Sonntag"
+            }
+            df_time['Wochentag'] = df_time['Wochentag'].map(day_map)
+            
+            heatmap_data = df_time.groupby(['Wochentag', 'Stunde']).size().reset_index(name='Spiele')
+            pivot_data = heatmap_data.pivot(index='Wochentag', columns='Stunde', values='Spiele').fillna(0)
+            
+            # Raster auffüllen (alle Tage und 24 Stunden erzwingen)
+            days_order = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+            for d in days_order:
+                if d not in pivot_data.index: pivot_data.loc[d] = 0
+            pivot_data = pivot_data.reindex(days_order)
+            
+            for h in range(24):
+                if h not in pivot_data.columns: pivot_data[h] = 0
+            pivot_data = pivot_data[list(range(24))]
+            
+            fig_heat = px.imshow(
+                pivot_data, 
+                labels=dict(x="Uhrzeit", y="Wochentag", color="Spiele"), 
+                x=list(range(24)),
+                y=days_order,
+                color_continuous_scale="Inferno", 
+                aspect="auto",
+                title="🔥 Aktivitäts-Heatmap (Wann zockt ihr am meisten?)"
+            )
+            fig_heat.update_xaxes(dtick=1)
+            st.plotly_chart(fig_heat, use_container_width=True)
+        else:
+            st.info("Spiele haben noch keine korrekten Zeitstempel (Die alten manuellen CSV-Daten haben keine Uhrzeit).")
+    else:
+        st.info("Keine Daten vorhanden.")
 
 with tab_sessions:
     st.header("Session Leaderboards")
@@ -450,11 +512,9 @@ with tab_sessions:
             selected_s = st.selectbox("Wähle eine Session:", list(sessions.keys()))
             s_df = sessions[selected_s].copy()
             
-            # --- ZUSATZ: ABSOLUTE MINUTENZEITEN ---
             s_df['Time'] = s_df['ID'].apply(parse_time)
             s_df_valid = s_df.dropna(subset=['Time']).sort_values('Time')
             if not s_df_valid.empty:
-                # Wir berechnen die Differenz vom ersten bis zum letzten Spiel + 3 Minuten für das letzte Match
                 dur = (s_df_valid['Time'].iloc[-1] + timedelta(minutes=3)) - s_df_valid['Time'].iloc[0]
                 h, r = divmod(dur.total_seconds(), 3600)
                 m, s = divmod(r, 60)
