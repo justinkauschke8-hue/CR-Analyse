@@ -14,11 +14,17 @@ from google.oauth2.service_account import Credentials
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Clash Analyzer Pro", layout="wide", page_icon="📊")
 
-# --- KONFIGURATION & HARDCODED TAGS ---
+# --- KONFIGURATION ---
+# Die Stamm-Crew (Diese tauchen in Liga, H2H, Prognose und Monte Carlo auf)
 TAGS = {
     "resan": "R902QGYCP",
     "gooterplayer": "VCGLJU02",
     "Jörg": "YY89R9L9G"
+}
+
+# Solo-Spieler (Komplett isoliert von der internen Crew-Liga)
+SOLO_TAGS = {
+    "Flexus": "QUJCO2U2L" 
 }
 
 # WICHTIG: Füge hier den echten Link aus der Browser-Leiste ein
@@ -263,7 +269,8 @@ def get_top_synergies(player, df):
     if not res_df.empty:
         res_df = res_df.sort_values(by=['Sieg-Quote (%)', 'Spiele'], ascending=[False, False]).head(5)
         res_df['Sieg-Quote (%)'] = res_df['Sieg-Quote (%)'].apply(lambda x: f"{x:.1f}%")
-    return res_df
+        return res_df
+    return pd.DataFrame()
 
 def get_consistency_score(player, df):
     p_df = df[(df['Spieler1'] == player) | (df['Spieler2'] == player)].sort_values('ID')
@@ -296,7 +303,7 @@ def run_monte_carlo_tournament(df, target_wins, sims, form_weight):
                 prob_matrix[p1][p2] = prob1
     results = {p: 0 for p in players}
     sweeps = 0
-    progress_text = "Universen werden berechnet..."
+    progress_text = "Simuliere Universen..."
     my_bar = st.progress(0, text=progress_text)
     for i in range(sims):
         if i % (sims // 10) == 0: my_bar.progress(i / sims, text=progress_text)
@@ -335,6 +342,7 @@ if not df_comp.empty:
     times = df_comp['ID'].apply(parse_time).dropna()
     if not times.empty: latest_match_str = times.max().strftime('%d.%m.%Y - %H:%M')
 
+# --- SIDEBAR ---
 st.sidebar.title("Clash Analyzer Pro")
 st.sidebar.markdown("---")
 st.sidebar.write("**System-Status**")
@@ -343,9 +351,9 @@ st.sidebar.write(f"Datensätze (Global): {len(df_global)}")
 st.sidebar.write(f"Letztes Match: {latest_match_str}")
 st.sidebar.markdown("---")
 
-# Die saubere Navigation (ohne Heatmap und Nemesis)
-tab_dbl, tab_spieler_loc, tab_spieler_glob, tab_dbf, tab_trends, tab_sessions, tab_prognose, tab_analyse, tab_dna, tab_mc = st.tabs([
-    "1v1 Liga", "Spieler (Lokal)", "Spieler (Global)", "Fun Matches", "Aktivität & Trends", "Sessions", "Prognose", "Match-Analyse", "Profil-DNA", "Monte Carlo"
+# --- NAVIGATION ---
+tab_dbl, tab_spieler_loc, tab_spieler_glob, tab_dbf, tab_trends, tab_sessions, tab_prognose, tab_analyse, tab_dna, tab_mc, tab_flexus = st.tabs([
+    "1v1 Liga", "Spieler (Lokal)", "Spieler (Global)", "Fun Matches", "Aktivität & Trends", "Sessions", "Prognose", "Match-Analyse", "Profil-DNA", "Monte Carlo", "Flexus (Solo)"
 ])
 
 # --- TAB 1: 1v1 LIGA ---
@@ -417,12 +425,9 @@ with tab_spieler_loc:
                     opp = r['Spieler2'] if is_p1 else r['Spieler1']
                     s_me = r['Score1'] if is_p1 else r['Score2']
                     s_opp = r['Score2'] if is_p1 else r['Score1']
-                    if s_me > s_opp:
-                        res_col, res_text = "#4CAF50", "W"
-                    elif s_me < s_opp:
-                        res_col, res_text = "#F44336", "L"
-                    else:
-                        res_col, res_text = "#888888", "D"
+                    if s_me > s_opp: res_col, res_text = "#4CAF50", "W"
+                    elif s_me < s_opp: res_col, res_text = "#F44336", "L"
+                    else: res_col, res_text = "#888888", "D"
                     history_html += f"<div style='margin-bottom: 4px;'><span style='color: {res_col}; font-weight: bold; width: 20px; display: inline-block;'>{res_text}</span> vs {opp} ({s_me}:{s_opp})</div>"
                 history_html += "</div>"
                 st.markdown(history_html, unsafe_allow_html=True)
@@ -616,7 +621,7 @@ with tab_sessions:
     else:
         sessions = build_sessions(df_comp)
         if sessions:
-            selected_s = st.selectbox("Wähle eine Session:", list(sessions.keys()))
+            selected_s = st.selectbox("Wähle eine Session aus der Historie:", list(sessions.keys()))
             s_df = sessions[selected_s].copy()
             s_df['Time'] = s_df['ID'].apply(parse_time)
             s_df_valid = s_df.dropna(subset=['Time']).sort_values('Time')
@@ -635,6 +640,7 @@ with tab_sessions:
                 with st.expander("Erklärung: Wie wird das King of the Hill (KotH) Rating berechnet?"):
                     st.markdown("""
                     Das **KotH-Rating (0-10)** bewertet den Most Valuable Player (MVP) der Session.
+                    Es bestraft Spieler, die nur 1x spielen, gewinnen und dann aufhören ("Leaver"), und belohnt diejenigen, die das Schlachtfeld dominieren.
                     
                     **Die Formel (Maximal 10 Punkte):**
                     *   **Winrate (Max 4.0 Pkt):** Basis-Skillfaktor. Formel: $Winrate \\times 4.0$
@@ -707,7 +713,7 @@ with tab_analyse:
         c1, c2 = st.columns([1.5, 1])
         with c1:
             st.subheader("Aktueller Power-Index")
-            st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:10px;'>Kurzzeit-Leistungsmesser (letzte 15 Spiele). Über 60 ist 'On Fire'. Unter 40 deutet auf Tilt hin.</div>", unsafe_allow_html=True)
+            st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:10px;'>Dynamischer Wert (0-100). Werte über 60 zeigen eine heiße Phase (On-Fire). Unter 40 deutet auf einen Tilt hin.</div>", unsafe_allow_html=True)
             cols_pi = st.columns(3)
             for idx, p in enumerate(TAGS.keys()):
                 pi = get_power_index(p, df_comp)
@@ -730,7 +736,7 @@ with tab_analyse:
 
         with c2:
             st.subheader("Matchup Radar-Vergleich")
-            st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:10px;'>Direkter Skill-Vergleich zwischen zwei Spielern. Je größer die Fläche, desto stärker.</div>", unsafe_allow_html=True)
+            st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:10px;'>Direkter Skill-Vergleich zwischen zwei Spielern (Werte auf 0-100 normiert). Je größer die Fläche, desto stärker.</div>", unsafe_allow_html=True)
             players = list(TAGS.keys())
             sel_p1 = st.selectbox("Spieler A (Grün)", players, index=0)
             sel_p2 = st.selectbox("Spieler B (Blau)", players, index=1)
@@ -769,7 +775,7 @@ with tab_dna:
         st.warning("Keine Datenbasis vorhanden.")
     else:
         st.subheader("Glicko Konsistenz-Index (Volatilität)")
-        st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:15px;'>Misst Nervenstärke und Verlässlichkeit (0-100). Wer extremen Schwankungen unterliegt, bekommt einen niedrigen Wert.</div>", unsafe_allow_html=True)
+        st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:15px;'>Misst Nervenstärke und Verlässlichkeit (0-100). Wer extremen Schwankungen (Tilts/Winstreaks) unterliegt, bekommt einen niedrigen Wert.</div>", unsafe_allow_html=True)
         
         for p in TAGS.keys():
             score, label, color = get_consistency_score(p, df_comp)
@@ -791,6 +797,11 @@ with tab_dna:
         with st.expander("Erklärung: Wie wird die Konsistenz berechnet?"):
             st.markdown("""
             Der Score misst die **Volatilität** – also wie extrem die Leistung schwankt.
+            
+            Ein Spieler, der exakt 50% Winrate hat, kann diese auf zwei Arten erreichen:
+            1.  **Die Maschine:** Sieg, Niederlage, Sieg, Niederlage. (Er ist konstant, man weiß was man bekommt).
+            2.  **Die Wundertüte:** 10 Siege in Folge, danach 10 Niederlagen am Stück in einem Tilt. (Er ist extrem unberechenbar).
+            
             **Die Formel:**
             Wir berechnen den Durchschnitt der Längen aller Serien ($\\overline{Streak}$).
             $Konsistenz = 100 - ((\\overline{Streak} - 1) \\times 25)$
@@ -811,7 +822,6 @@ with tab_dna:
                 st.dataframe(synergy_df.reset_index(drop=True), use_container_width=True)
             with col_s2:
                 plot_df = synergy_df.copy()
-                # DER FEHLER WURDE HIER ENDGÜLTIG BEHOBEN:
                 plot_df['WR_Float'] = plot_df['Sieg-Quote (%)'].str.replace('%', '').astype(float)
                 fig_syn = px.bar(plot_df, x='WR_Float', y='Karten-Duo', orientation='h', text='Sieg-Quote (%)', color='Spiele', color_continuous_scale="Viridis")
                 fig_syn.update_layout(height=250, margin=dict(l=10, r=10, t=10, b=10), yaxis={'categoryorder':'total ascending'}, paper_bgcolor="#0E1117", plot_bgcolor="#121212", font={'color': "#FFF"}, xaxis_title="Sieg-Wahrscheinlichkeit (%)")
@@ -880,3 +890,117 @@ with tab_mc:
                 st.markdown("<br><br>", unsafe_allow_html=True)
                 st.info(f"**Top-Favorit:**<br>Zu {res_df.iloc[0]['Wahrscheinlichkeit']:.1f}% gewinnt **{res_df.iloc[0]['Spieler']}**.")
                 st.warning(f"**Vernichtungs-Quote (Sweeps):**<br>{(st.session_state['mc_sweeps']/sims_done)*100:.1f}%<br><span style='font-size:0.75rem; color:#888;'>Anteil der Turniere, in denen der Sieger alle anderen völlig deklassiert hat.</span>")
+
+# --- TAB 11: FLEXUS (SOLO TERMINAL) ---
+with tab_flexus:
+    st.header("Flexus Solo-Analyse")
+    st.markdown("<div style='color:#888; font-size:13px; margin-top:-10px; margin-bottom:20px;'>Exklusive Daten-Einsicht für Flexus. Diese Statistiken sind von der internen Crew-Liga strikt isoliert.</div>", unsafe_allow_html=True)
+    
+    f_name = "Flexus"
+    f_tag = SOLO_TAGS.get(f_name, "")
+    
+    # 1. Profile Data (Trophäen & Ladder-Historie)
+    if not df_prof.empty and f_name in df_prof['Spieler'].values:
+        f_prof = df_prof[df_prof['Spieler'] == f_name].iloc[0]
+        st.subheader("Account-Status")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Aktuelle Trophäen", f_prof['Trophies'])
+        c2.metric("Trophäen-Rekord", f_prof['Max_Trophies'])
+        c3.metric("Ladder Matches", f_prof['Matches'])
+        c4.metric("Global Winrate", f"{f_prof['Wins']/f_prof['Matches']*100:.1f}%" if f_prof['Matches'] > 0 else "0%")
+        
+        # Trophy Trend 
+        f_history = df_prof[df_prof['Spieler'] == f_name].copy()
+        if len(f_history) > 1:
+            st.markdown("---")
+            st.subheader("Entwicklung der Trophäen")
+            fig_troph = px.line(f_history, x=f_history.index, y='Trophies', markers=True)
+            fig_troph.update_layout(height=250, paper_bgcolor="#0E1117", plot_bgcolor="#121212", font={'color': "#FFF"})
+            st.plotly_chart(fig_troph, use_container_width=True)
+
+    # 2. Global Data (Kampf-Statistiken)
+    f_glob = df_global[df_global['Spieler'] == f_name].sort_values('Time_ID')
+    if f_glob.empty:
+        st.info("Noch keine globalen Kampf-Daten für Flexus im Archiv vorhanden.")
+    else:
+        st.markdown("---")
+        st.subheader("Performance & Deep-Dive (Archiv)")
+        
+        # Berechnung der KPIs
+        b_wins = sum(1 for _, r in f_glob.iterrows() if r['Score_Me'] > r['Score_Opp'])
+        b_games = len(f_glob)
+        clean_sheets = len(f_glob[f_glob['Score_Opp'] == 0])
+        clutch_games = len(f_glob[abs(f_glob['Score_Me'] - f_glob['Score_Opp']) == 1])
+        clutch_wins = sum(1 for _, r in f_glob.iterrows() if abs(r['Score_Me'] - r['Score_Opp']) == 1 and r['Score_Me'] > r['Score_Opp'])
+        
+        col_f1, col_f2, col_f3 = st.columns(3)
+        with col_f1:
+            # Power Index Simulation für Flexus
+            f_last_15 = f_glob.tail(15)
+            f_nw = sum(1 if r['Score_Me'] > r['Score_Opp'] else -1 for _, r in f_last_15.iterrows())
+            f_pi = max(0, min(100, 50 + (f_nw * 2.5)))
+            st.markdown("**Aktueller Power-Index**")
+            st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:5px;'>Kurzzeit-Hitze (letzte 15 Spiele).</div>", unsafe_allow_html=True)
+            fig_fpi = go.Figure(go.Indicator(mode="gauge+number", value=f_pi, gauge={'axis': {'range': [0, 100]}, 'bar': {'color': "#2196F3"}, 'bgcolor': "#121212"}))
+            fig_fpi.update_layout(height=200, paper_bgcolor="#0E1117", font={'color': "#FFF"}, margin=dict(l=10, r=10, t=10, b=10))
+            st.plotly_chart(fig_fpi, use_container_width=True)
+            
+        with col_f2:
+            st.markdown("**Offensiv vs Defensiv**")
+            st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:5px;'>Ø Kronen pro globalem Spiel.</div>", unsafe_allow_html=True)
+            df_fcr = pd.DataFrame({'Typ': ['Offensiv', 'Defensiv'], 'Kronen': [f_glob['Score_Me'].mean(), f_glob['Score_Opp'].mean()]})
+            fig_fcr = px.bar(df_fcr, x='Typ', y='Kronen', text_auto='.2f', color='Typ', color_discrete_map={'Offensiv': '#4CAF50', 'Defensiv': '#F44336'})
+            fig_fcr.update_layout(height=200, margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor="#0E1117", plot_bgcolor="#121212", showlegend=False, font={'color': "#FFF"}, xaxis_title="", yaxis_title="")
+            st.plotly_chart(fig_fcr, use_container_width=True)
+            
+        with col_f3:
+            st.markdown("**Profil-DNA (Konsistenz)**")
+            st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:5px;'>Nervenstärke (Volatilität).</div>", unsafe_allow_html=True)
+            # Konsistenz Score Logik für Flexus (Global)
+            streak_lens, curr, last = [], 0, None
+            for _, r in f_glob.iterrows():
+                win = 1 if r['Score_Me'] > r['Score_Opp'] else 0
+                if last is None or win == last: curr += 1
+                else: streak_lens.append(curr); curr = 1
+                last = win
+            streak_lens.append(curr)
+            f_avg_s = sum(streak_lens)/len(streak_lens) if streak_lens else 1
+            f_cons = max(0, min(100, 100 - ((f_avg_s - 1) * 25)))
+            
+            f_color = "#4CAF50" if f_cons >= 80 else ("#2196F3" if f_cons >= 50 else "#F44336")
+            f_label = "Maschine" if f_cons >= 80 else ("Solide Form" if f_cons >= 50 else "Wundertüte")
+            
+            st.markdown(f"""
+            <div style='margin-top: 30px; font-family: sans-serif;'>
+            <div style='display: flex; justify-content: space-between; margin-bottom: 5px;'>
+                <span style='color: {f_color}; font-weight: bold;'>Score: {f_cons:.0f} / 100</span>
+            </div>
+            <div style='width: 100%; background-color: #222; border-radius: 4px; height: 12px; overflow: hidden; border: 1px solid #333;'>
+                <div style='width: {f_cons}%; background-color: {f_color}; height: 100%; border-radius: 4px;'></div>
+            </div>
+            <div style='text-align: right; font-size: 0.8rem; color: #888; margin-top: 5px;'>
+                Urteil: <span style='color: {f_color};'>{f_label}</span>
+            </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("---")
+        st.subheader("Letzte 5 Spiele (Global)")
+        f_last_5_html = "<div style='font-family: monospace; font-size: 0.9rem; background: #121212; border: 1px solid #333; padding: 10px 15px; border-radius: 6px;'>"
+        count_f = 0
+        for _, r in f_glob.tail(5).iloc[::-1].iterrows():
+            my_c, op_c = r['Score_Me'], r['Score_Opp']
+            t_str = parse_time(r['Time_ID']).strftime("%d.%m %H:%M") if pd.notnull(parse_time(r['Time_ID'])) else "Unbekannt"
+            res_c, res_t = ("#4CAF50", "W") if my_c > op_c else ("#F44336", "L") if my_c < op_c else ("#888", "D")
+            bb = "border-bottom: 1px solid #222;" if count_f != 4 else ""
+            f_last_5_html += f"<div style='display: flex; justify-content: space-between; padding: 8px 0; {bb}'><div style='color:#666; width:15%;'>{t_str}</div><div style='width:10%; color:{res_c}; font-weight:bold;'>{res_t}</div><div style='width:20%; font-weight:bold;'>{my_c} : {op_c}</div><div style='width:55%; color:#aaa;'>vs {str(r['Opponent'])[:20]}</div></div>"
+            count_f += 1
+        f_last_5_html += "</div>"
+        st.markdown(f_last_5_html, unsafe_allow_html=True)
+        
+        with st.expander("Erklärung: Isolation des Spielers"):
+            st.markdown("""
+            Das Profil von **Flexus** ist vollständig von den kompetitiven Team-Algorithmen entkoppelt. 
+            Während die Liga-Tabs nur Spiele innerhalb der Crew auswerten, zieht das Flexus-Terminal seine Daten **exklusiv aus seinen weltweiten Matches** (Ladder/Events). 
+            Sein Power-Index und seine Konsistenz sind somit ein direkter Indikator für seine Performance im globalen Ranking.
+            """)
