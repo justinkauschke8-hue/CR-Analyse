@@ -893,11 +893,11 @@ with tab_mc:
 
 # --- TAB 11: FLEXUS (ABI TERMINAL) ---
 with tab_flexus:
-    # 1. Begrüßung (Modern & Dezent)
+    # 1. Begrüßung
     st.markdown("""
         <div style='background: linear-gradient(90deg, #1e1e2f 0%, #121212 100%); padding: 25px; border-radius: 15px; border-left: 5px solid #4CAF50; margin-bottom: 25px;'>
             <h1 style='margin:0; color: #FFF; font-family: sans-serif; font-weight: 800; letter-spacing: -1px;'>🤴 flexus abi statistik</h1>
-            <p style='margin:0; color: #888; font-size: 0.9rem;'>Zentrale Dateneinsicht & Performance-Monitoring | Global Account</p>
+            <p style='margin:0; color: #888; font-size: 0.9rem;'>Zentrale Dateneinsicht & Live-Prognosen | Global Account</p>
         </div>
     """, unsafe_allow_html=True)
     
@@ -910,109 +910,158 @@ with tab_flexus:
     if f_prof_all.empty:
         st.warning("⚠️ Keine Profildaten für Flexus gefunden. Bitte Bot-Verbindung prüfen.")
     else:
-        # Aktuellster Stand
+        # Aktuellster Stand für die Metriken
         f_prof = f_prof_all.iloc[-1]
         
-        # --- TOP SECTION: DASHBOARD CARDS ---
-        c1, c2, c3, c4 = st.columns(4)
+        # --- TOP SECTION: HARTE FAKTEN ---
+        st.subheader("📊 Harte Fakten")
+        c1, c2, c3, c4, c5, c6 = st.columns(6)
         
-        # Custom HTML Cards für den "Pro"-Look
-        def stat_card(title, value, subtitle, color="#4CAF50"):
-            return f"""
-                <div style='background: #121212; padding: 20px; border-radius: 12px; border: 1px solid #222; text-align: center;'>
-                    <div style='color: #888; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px;'>{title}</div>
-                    <div style='color: {color}; font-size: 1.8rem; font-weight: 800;'>{value}</div>
-                    <div style='color: #555; font-size: 0.7rem; margin-top: 5px;'>{subtitle}</div>
-                </div>
-            """
+        c1.metric("Trophäen", f"{f_prof['Trophies']}")
+        c2.metric("Rekord", f"{f_prof['Max_Trophies']}")
+        c3.metric("Matches", f"{f_prof['Matches']:,}".replace(',', '.'))
+        c4.metric("Wins", f"{f_prof['Wins']:,}".replace(',', '.'))
+        c5.metric("Losses", f"{f_prof['Losses']:,}".replace(',', '.'))
+        
+        wr_f = (f_prof['Wins'] / f_prof['Matches'] * 100) if f_prof['Matches'] > 0 else 0
+        c6.metric("Winrate", f"{wr_f:.1f}%")
 
-        with c1:
-            st.markdown(stat_card("Trophäen", f_prof['Trophies'], f"Rekord: {f_prof['Max_Trophies']}", "#FFF"), unsafe_allow_html=True)
-        with c2:
-            wr_f = (f_prof['Wins']/f_prof['Matches']*100) if f_prof['Matches'] > 0 else 0
-            st.markdown(stat_card("Winrate", f"{wr_f:.1f}%", f"Aus {f_prof['Matches']} Matches", "#4CAF50"), unsafe_allow_html=True)
-        with c3:
-            st.markdown(stat_card("Gespielte Kämpfe", f"{f_prof['Matches']:,}".replace(',', '.'), "Gesamt (Ladder)", "#2196F3"), unsafe_allow_html=True)
-        with c4:
-            # Das ABI-Rating (Berechnet aus Trophäen-Prozent vom PB + Winrate-Bonus)
-            base_score = (f_prof['Trophies'] / f_prof['Max_Trophies'] * 80) if f_prof['Max_Trophies'] > 0 else 0
-            wr_bonus = (wr_f - 45) * 2 # Bonus/Abzug bei Abweichung von 45%
-            abi_rating = max(0, min(100, base_score + wr_bonus))
+        st.markdown("---")
+
+        # --- QUOTE / PROGNOSE ---
+        st.subheader("🎲 Live-Quote: Nächstes Spiel")
+        st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:15px;'>Buchmacher-Quote gegen einen durchschnittlichen Ladder-Gegner. Basiert auf globaler Winrate, Tagesform (letzte 15) und aktuellem Momentum.</div>", unsafe_allow_html=True)
+        
+        if not f_glob.empty:
+            # Stats für die Quotenberechnung extrahieren
+            f_total_games = len(f_glob)
+            f_total_wins = sum(1 for _, r in f_glob.iterrows() if r['Score_Me'] > r['Score_Opp'])
+            f_global_wr = (f_total_wins / f_total_games * 100) if f_total_games > 0 else 50
             
-            rating_color = "#4CAF50" if abi_rating >= 75 else ("#FFC107" if abi_rating >= 50 else "#F44336")
-            st.markdown(stat_card("Abi-Rating", f"{abi_rating:.0f}", "Global Skill Score", rating_color), unsafe_allow_html=True)
+            f_last_15 = f_glob.tail(15)
+            f_net_wins, f_streak = 0, 0
+            f_is_win_streak = None
+            
+            for _, r in f_last_15.iterrows():
+                p_won = r['Score_Me'] > r['Score_Opp']
+                if p_won:
+                    f_net_wins += 1
+                    if f_is_win_streak in (None, True): f_streak += 1; f_is_win_streak = True
+                    else: f_streak = 1; f_is_win_streak = True
+                else:
+                    f_net_wins -= 1
+                    if f_is_win_streak in (None, False): f_streak += 1; f_is_win_streak = False
+                    else: f_streak = 1; f_is_win_streak = False
+            
+            actual_streak = f_streak if f_is_win_streak else -f_streak
+            
+            # Die Logik (Flexus Base vs. Standard-Gegner Base 100)
+            score_flexus = max(10, 100 + (f_global_wr - 50)*1.5 + (f_net_wins * 2) + (actual_streak * 4))
+            score_field = 100
+            
+            prob_flexus = score_flexus / (score_flexus + score_field)
+            prob_field = score_field / (score_flexus + score_field)
+            odds_flexus = max(1.01, round(1 / prob_flexus, 2))
+            odds_field = max(1.01, round(1 / prob_field, 2))
+            
+            pf_pct = prob_flexus * 100
+            po_pct = prob_field * 100
+            
+            # Dynamischer Kommentar zur Quote
+            insight = "Ausgeglichenes Matchmaking"
+            if f_global_wr > 55: insight = f"Starke globale Winrate ({f_global_wr:.1f}%)"
+            if actual_streak >= 3: insight = f"Momentum Flexus (+{actual_streak} Win-Streak)"
+            elif actual_streak <= -3: insight = f"Tilt-Gefahr ({actual_streak} Lose-Streak)"
+            elif f_net_wins >= 4: insight = "Gute Tagesform (+ Net-Wins)"
+            
+            st.markdown(f"""
+            <div style='background-color: #121212; color: #FFF; padding: 15px; border-radius: 6px; border: 1px solid #333; margin-bottom: 20px; font-family: sans-serif; max-width: 800px;'>
+            <div style='text-align: center; font-weight: 600; font-size: 1rem; margin-bottom: 15px; border-bottom: 1px solid #222; padding-bottom: 8px;'>
+            Flexus <span style='color: #666; font-size: 0.8rem; margin: 0 8px;'>VS</span> Unbekannter Gegner (Ladder)
+            </div>
+            <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;'>
+            <div style='text-align: left; width: 45%;'>
+            <div style='font-size: 1.3rem; font-weight: 700; color: #4CAF50;'>{odds_flexus:.2f}</div>
+            <div style='font-size: 0.75rem; color: #777;'>Sieg Flexus ({pf_pct:.0f}%)</div>
+            </div>
+            <div style='text-align: right; width: 45%;'>
+            <div style='font-size: 1.3rem; font-weight: 700; color: #F44336;'>{odds_field:.2f}</div>
+            <div style='font-size: 0.75rem; color: #777;'>Niederlage ({po_pct:.0f}%)</div>
+            </div>
+            </div>
+            <div style='width: 100%; background-color: #222; border-radius: 3px; height: 4px; margin-bottom: 12px; display: flex; overflow: hidden;'>
+            <div style='width: {pf_pct}%; background-color: #4CAF50; height: 100%;'></div>
+            <div style='width: {po_pct}%; background-color: #F44336; height: 100%;'></div>
+            </div>
+            <div style='font-size: 0.75rem; color: #888; text-align: center; text-transform: uppercase;'>Einflussfaktor: {insight}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.info("Benötige Kampfdaten für die Prognose.")
 
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("---")
 
-        # --- MIDDLE SECTION: GRAPHIKEN ---
-        col_g1, col_g2 = st.columns([2, 1])
+        # --- MIDDLE SECTION: HISTORIE & GRAPH ---
+        col_left, col_right = st.columns([1, 1.2])
 
-        with col_g1:
-            st.subheader("📈 Trophäen-Historie")
+        with col_left:
+            st.subheader("🕹️ Letzte 5 Spiele")
+            if not f_glob.empty:
+                f_last_5 = f_glob.tail(5).iloc[::-1]
+                
+                rows_html = ""
+                for _, r in f_last_5.iterrows():
+                    my, op = r['Score_Me'], r['Score_Opp']
+                    
+                    # Farbiger Resultat-Tag
+                    if my > op:
+                        chip = "<span style='color:#4CAF50; font-weight:bold; letter-spacing:1px;'>WIN</span>"
+                    elif my < op:
+                        chip = "<span style='color:#F44336; font-weight:bold; letter-spacing:1px;'>LOSS</span>"
+                    else:
+                        chip = "<span style='color:#888; font-weight:bold; letter-spacing:1px;'>DRAW</span>"
+                    
+                    # Zeit formatieren (Aus YYYYMMDDTHHMMSS -> DD.MM HH:MM)
+                    t_str = str(r['Time_ID'])
+                    if len(t_str) >= 13:
+                        t_format = f"{t_str[6:8]}.{t_str[4:6]} {t_str[9:11]}:{t_str[11:13]}"
+                    else:
+                        t_format = "Unbekannt"
+
+                    rows_html += f"""
+                        <div style='background: #121212; padding: 12px; border-radius: 8px; border: 1px solid #222; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; font-family: sans-serif;'>
+                            <div style='width: 25%; font-size: 0.8rem; color: #888;'>{t_format}</div>
+                            <div style='width: 20%; font-size: 0.9rem;'>{chip}</div>
+                            <div style='width: 20%; font-size: 1.1rem; font-weight: bold; color: #FFF;'>{my} : {op}</div>
+                            <div style='width: 35%; font-size: 0.8rem; color: #aaa; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;'>vs {str(r['Opponent'])}</div>
+                        </div>
+                    """
+                st.markdown(rows_html, unsafe_allow_html=True)
+            else:
+                st.info("Noch keine Kämpfe im Global-Archiv.")
+
+        with col_right:
+            st.subheader("📈 Trophäen-Entwicklung")
             if len(f_prof_all) > 1:
-                # Wir plotten den Verlauf der Trophäen aus der Profile_Data (historisch geloggt)
-                fig_trend = px.line(f_prof_all, x=f_prof_all.index, y='Trophies', markers=True)
+                # Schalter für die Zeitspanne
+                trend_filter = st.radio("Zeitraum auswählen:", ["All-Time", "Letzte 15 Messungen"], horizontal=True, label_visibility="collapsed")
+                
+                # Daten filtern
+                plot_data = f_prof_all.tail(15) if "15" in trend_filter else f_prof_all
+
+                # Graph zeichnen
+                fig_trend = px.line(plot_data, x=plot_data.index, y='Trophies', markers=True)
                 fig_trend.update_layout(
-                    height=300, 
+                    height=350, 
                     margin=dict(l=0, r=0, t=10, b=0),
                     paper_bgcolor="rgba(0,0,0,0)", 
                     plot_bgcolor="rgba(0,0,0,0)",
-                    font={'color': "#888"},
-                    xaxis={'showgrid': False, 'title': ''},
+                    font={'color': "#FFF"},
+                    xaxis={'showgrid': False, 'visible': False}, # Versteckt die unnötige X-Achse
                     yaxis={'gridcolor': '#222', 'title': 'Trophäen'}
                 )
-                fig_trend.update_traces(line_color='#2196F3', line_width=3, marker=dict(size=8, color="#FFF", line=dict(width=2, color="#2196F3")))
+                # Design der Linie
+                fig_trend.update_traces(line_color='#4CAF50', line_width=3, marker=dict(size=8, color="#FFF", line=dict(width=2, color="#4CAF50")))
                 st.plotly_chart(fig_trend, use_container_width=True)
             else:
-                st.info("Sammle mehr Datenpunkte für die Trend-Analyse (Bot laufen lassen).")
-
-        with col_g2:
-            st.subheader("⚔️ Kampf-Verteilung")
-            if not f_glob.empty:
-                f_wins = sum(1 for _, r in f_glob.iterrows() if r['Score_Me'] > r['Score_Opp'])
-                f_loss = len(f_glob) - f_wins
-                fig_pie = px.pie(names=['Siege', 'Niederlagen'], values=[f_wins, f_loss], hole=0.7, color_discrete_sequence=['#4CAF50', '#222'])
-                fig_pie.update_layout(height=300, margin=dict(l=0, r=0, t=10, b=0), paper_bgcolor="rgba(0,0,0,0)", showlegend=False)
-                fig_pie.update_traces(textinfo='none')
-                fig_pie.add_annotation(text=f"{f_wins+f_loss}", showarrow=False, font_size=25, font_color="#FFF", x=0.5, y=0.55)
-                fig_pie.add_annotation(text="Spiele (Archiv)", showarrow=False, font_size=10, font_color="#888", x=0.5, y=0.42)
-                st.plotly_chart(fig_pie, use_container_width=True)
-
-        # --- BOTTOM SECTION: RECENT ACTIVITY ---
-        st.markdown("---")
-        st.subheader("🕹️ Letzte Einsätze (Global)")
-        
-        if not f_glob.empty:
-            f_last_5 = f_glob.tail(5).iloc[::-1]
-            
-            # Professionelle Tabelle statt einfachem HTML
-            def get_res_chip(my, op):
-                if my > op: return "<span style='background:#1b4332; color:#74c69d; padding:2px 8px; border-radius:4px; font-size:0.7rem; font-weight:bold;'>WIN</span>"
-                if my < op: return "<span style='background:#431b1b; color:#c67474; padding:2px 8px; border-radius:4px; font-size:0.7rem; font-weight:bold;'>LOSS</span>"
-                return "<span style='background:#333; color:#aaa; padding:2px 8px; border-radius:4px; font-size:0.7rem; font-weight:bold;'>DRAW</span>"
-
-            rows_html = ""
-            for _, r in f_last_5.iterrows():
-                chip = get_res_chip(r['Score_Me'], r['Score_Opp'])
-                rows_html += f"""
-                    <tr style='border-bottom: 1px solid #222;'>
-                        <td style='padding: 12px 5px;'>{chip}</td>
-                        <td style='padding: 12px 5px; font-weight:bold;'>{r['Score_Me']} : {r['Score_Opp']}</td>
-                        <td style='padding: 12px 5px; color:#eee;'>{str(r['Opponent'])[:20]}</td>
-                        <td style='padding: 12px 5px; color:#666; font-size:0.8rem;'>{str(r['Time_ID'])[4:6]}.{str(r['Time_ID'])[6:8]} {str(r['Time_ID'])[9:11]}:{str(r['Time_ID'])[11:13]}</td>
-                    </tr>
-                """
-            
-            st.markdown(f"""
-                <table style='width:100%; border-collapse: collapse; font-family: sans-serif;'>
-                    <tr style='text-align:left; color:#555; font-size:0.7rem; text-transform:uppercase; border-bottom: 1px solid #333;'>
-                        <th style='padding: 10px 5px;'>Resultat</th>
-                        <th style='padding: 10px 5px;'>Score</th>
-                        <th style='padding: 10px 5px;'>Gegner</th>
-                        <th style='padding: 10px 5px;'>Zeitpunkt</th>
-                    </tr>
-                    {rows_html}
-                </table>
-            """, unsafe_allow_html=True)
-        else:
-            st.info("Noch keine Kampf-Daten im Global-Archiv vorhanden.")
+                st.info("Sammle mehr Datenpunkte (Lass den Bot ein paarmal laufen), um die Kurve zu zeichnen.")
