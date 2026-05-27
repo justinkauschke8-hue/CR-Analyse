@@ -15,19 +15,16 @@ from google.oauth2.service_account import Credentials
 st.set_page_config(page_title="Clash Analyzer Pro", layout="wide", page_icon="📊")
 
 # --- KONFIGURATION ---
-# Die Stamm-Crew (Diese tauchen in Liga, H2H, Prognose und Monte Carlo auf)
 TAGS = {
     "resan": "R902QGYCP",
     "gooterplayer": "VCGLJU02",
     "Jörg": "YY89R9L9G"
 }
 
-# Solo-Spieler (Komplett isoliert von der internen Crew-Liga)
 SOLO_TAGS = {
-    "Flexus": "QUJC02U2L" 
+    "Flexus": "QUJC02U2L"
 }
 
-# WICHTIG: Füge hier den echten Link aus der Browser-Leiste ein
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1SZQhK7TeBRI6DspxVJWU31ul_PGTXNOoxcOwE6rn2u8/edit?gid=641247476#gid=641247476"
 
 API_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjhjMzk2MDM1LTgyMzMtNGFhMi04YzVjLTg3NjVmZDliYjE0MSIsImlhdCI6MTc3Nzk4NDU2Niwic3ViIjoiZGV2ZWxvcGVyL2MyYjczNjYyLWE2YjYtNzdkMC00N2I4LTM5YjE0MWYyNzcxOCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyI5Mi4yMDguMjUuMTIiXSwidHlwZSI6ImNsaWVudCJ9XX0.LG_Q_jELSrMoeRPVVU5saPFnNWBrGbzaaaXtl_4HvKEMd-jDBBldJUpLZXQJ2101_tGsxgQ-3bU5tejtmY3wQg"
@@ -41,8 +38,8 @@ def init_google_sheets():
     client = gspread.authorize(creds)
     sheet = client.open_by_url(SHEET_URL)
     return (
-        sheet.worksheet("Karten_Data"), 
-        sheet.worksheet("Fun_Data"), 
+        sheet.worksheet("Karten_Data"),
+        sheet.worksheet("Fun_Data"),
         sheet.worksheet("Profile_Data"),
         sheet.worksheet("Global_Data")
     )
@@ -57,6 +54,76 @@ def get_df_from_sheet(worksheet):
     data = worksheet.get_all_records()
     if data: return pd.DataFrame(data)
     return pd.DataFrame()
+
+# --- API LOGIK ---
+@st.cache_data(ttl=60)
+def get_api_data(endpoint, tag):
+    url = f"https://api.clashroyale.com/v1/players/%23{tag}/{endpoint}" if endpoint else f"https://api.clashroyale.com/v1/players/%23{tag}"
+    headers = {"Authorization": f"Bearer {API_KEY}"}
+    try:
+        res = requests.get(url, headers=headers, timeout=10)
+        if res.status_code == 200:
+            return res.json()
+        else:
+            return {"_error": True, "_status": res.status_code, "_msg": res.text[:300]}
+    except Exception as e:
+        return {"_error": True, "_status": 0, "_msg": str(e)}
+
+# --- AUTO-SCANNER (Google Sheets Sync) ---
+def scan_for_battles():
+    df_comp = get_df_from_sheet(ws_comp)
+    df_fun = get_df_from_sheet(ws_fun)
+
+    new_comp_rows, new_fun_rows = [], []
+    known_comp_ids = set(df_comp['ID'].astype(str)) if not df_comp.empty else set()
+    known_fun_ids = set(df_fun['ID'].astype(str)) if not df_fun.empty else set()
+
+    api_errors = []
+
+    for name, tag in TAGS.items():
+        log = get_api_data("battlelog", tag)
+
+        if log is None or (isinstance(log, dict) and log.get("_error")):
+            status = log.get("_status", "?") if isinstance(log, dict) else "?"
+            msg = log.get("_msg", "") if isinstance(log, dict) else ""
+            api_errors.append(f"**{name}** → Status `{status}`: {msg}")
+            continue
+
+        if not isinstance(log, list):
+            api_errors.append(f"**{name}** → Unerwartetes Format: {str(log)[:200]}")
+            continue
+
+        for b in log:
+            b_id = b.get('battleTime')
+            if not b.get('opponent') or not b.get('team'):
+                continue
+            opp_tag = b['opponent'][0].get('tag', '').replace('#', '')
+            rival = next((n for n, t in TAGS.items() if t == opp_tag), None)
+
+            if rival:
+                s1, s2 = b['team'][0].get('crowns', 0), b['opponent'][0].get('crowns', 0)
+                k1 = ", ".join([c['name'] for c in b['team'][0].get('cards', [])])
+                k2 = ", ".join([c['name'] for c in b['opponent'][0].get('cards', [])])
+                row_data = [b_id, name, rival, s1, s2, k1, k2]
+
+                if b_id not in known_fun_ids:
+                    new_fun_rows.append(row_data)
+                    known_fun_ids.add(b_id)
+
+                is_solo = len(b.get('team', [])) == 1 and len(b.get('opponent', [])) == 1
+                # FIX: deckSelection kann 'collection', 'own' oder leer sein
+                deck_val = b.get('deckSelection', '')
+                is_own_deck = deck_val in ('collection', 'own', '')
+                if is_solo and is_own_deck and b_id not in known_comp_ids:
+                    new_comp_rows.append(row_data)
+                    known_comp_ids.add(b_id)
+
+    if new_comp_rows:
+        ws_comp.append_rows(new_comp_rows)
+    if new_fun_rows:
+        ws_fun.append_rows(new_fun_rows)
+
+    return len(new_comp_rows), len(new_fun_rows), api_errors
 
 # --- HELFER FUNKTIONEN ---
 def parse_time(id_str):
@@ -73,14 +140,14 @@ def calculate_card_stats(spieler, df):
         win = (row['Score1'] > row['Score2']) if is_p1 else (row['Score2'] > row['Score1'])
         for k in str(row['Karten1'] if is_p1 else row['Karten2']).split(","):
             k = k.strip().capitalize()
-            if k: 
+            if k:
                 if k not in counts: counts[k] = [0, 0]
                 counts[k][0] += 1
                 if win: counts[k][1] += 1
     data = [{"Karte": k, "Gespielt": v[0], "Winrate (%)": round((v[1]/v[0]*100),1)} for k, v in counts.items()]
     res_df = pd.DataFrame(data)
     top_use = res_df.sort_values("Gespielt", ascending=False).head(5)
-    top_wr = res_df[res_df["Gespielt"] >= 3].sort_values("Winrate (%)", ascending=False).head(5) 
+    top_wr = res_df[res_df["Gespielt"] >= 3].sort_values("Winrate (%)", ascending=False).head(5)
     return top_use, top_wr
 
 def get_h2h_stats_data(df):
@@ -137,20 +204,16 @@ def calc_matchup_odds(p1, p2, df, form_weight=1.0):
     p1_h2h_wins = sum(1 for _, r in match_df.iterrows() if (r['Spieler1']==p1 and r['Score1']>r['Score2']) or (r['Spieler2']==p1 and r['Score2']>r['Score1']))
     p1_h2h_wr = (p1_h2h_wins / total_h2h * 100) if total_h2h > 0 else 50
     p2_h2h_wr = 100 - p1_h2h_wr if total_h2h > 0 else 50
-    
-    h2h_bonus_p1 = (p1_h2h_wr - 50) * 1.5 
+    h2h_bonus_p1 = (p1_h2h_wr - 50) * 1.5
     h2h_bonus_p2 = (p2_h2h_wr - 50) * 1.5
     f1, s1 = get_player_form_and_streak(p1, df)
     f2, s2 = get_player_form_and_streak(p2, df)
-    
     score_p1 = max(10, 100 + h2h_bonus_p1 + ((f1 * 2) * form_weight) + ((s1 * 4) * form_weight))
     score_p2 = max(10, 100 + h2h_bonus_p2 + ((f2 * 2) * form_weight) + ((s2 * 4) * form_weight))
-    
     prob_1 = score_p1 / (score_p1 + score_p2)
     prob_2 = score_p2 / (score_p1 + score_p2)
     odds_1 = max(1.01, round(1 / prob_1, 2))
     odds_2 = max(1.01, round(1 / prob_2, 2))
-    
     insight = "Ausgeglichenes Matchup"
     if total_h2h == 0: insight = "Keine H2H-Historie"
     elif p1_h2h_wr > 50 and s2 >= 3: insight = f"H2H {p1[:6]} | Momentum {p2[:6]} (+{s2})"
@@ -159,7 +222,6 @@ def calc_matchup_odds(p1, p2, df, form_weight=1.0):
     elif f2 > f1 + 4: insight = f"Form {p2[:6]} (NW: +{f2})"
     elif p1_h2h_wr >= 70: insight = f"H2H-Dominanz {p1[:6]} ({p1_h2h_wr:.0f}%)"
     elif p2_h2h_wr >= 70: insight = f"H2H-Dominanz {p2[:6]} ({p2_h2h_wr:.0f}%)"
-    
     return prob_1, prob_2, odds_1, odds_2, insight
 
 def build_sessions(df):
@@ -172,7 +234,7 @@ def build_sessions(df):
     df_valid['Session_Num'] = (df_valid['Time_Diff'] > pd.Timedelta(minutes=30)).cumsum()
     sessions = {}
     for s_num, group in df_valid.groupby('Session_Num'):
-        if len(group) < 2: continue 
+        if len(group) < 2: continue
         start_time = group['Time'].iloc[0].strftime("%d.%m.%Y - %H:%M")
         s_name = f"{start_time} ({len(group)} Spiele)"
         sessions[s_name] = group
@@ -202,7 +264,6 @@ def get_session_leaderboard(session_df):
                 if stats[p1]["is_win"] == False: stats[p1]["curr_streak"] += 1
                 else: stats[p1]["is_win"] = False; stats[p1]["curr_streak"] = 1
                 stats[p1]["max_l_streak"] = max(stats[p1]["max_l_streak"], stats[p1]["curr_streak"])
-
     max_wins = max([data["W"] for data in stats.values()]) if stats else 0
     leaderboard = []
     for p, data in stats.items():
@@ -216,7 +277,7 @@ def get_session_leaderboard(session_df):
         streak_mod = ((max_w_s - 1) * 0.3) - ((max_l_s - 1) * 0.3)
         final_rating = max(0.0, min(10.0, score_wr + score_dom + score_imp + streak_mod))
         leaderboard.append({
-            "Spieler": p[:10], "Matches": data["P"], "Wins": data["W"], "Losses": data["L"], 
+            "Spieler": p[:10], "Matches": data["P"], "Wins": data["W"], "Losses": data["L"],
             "WR": f"{wr*100:.0f}%", "Streaks": f"+{data['max_w_streak']} / -{data['max_l_streak']}", "Rating (KotH)": round(final_rating, 1)
         })
     if not leaderboard: return pd.DataFrame()
@@ -345,6 +406,43 @@ if not df_comp.empty:
 # --- SIDEBAR ---
 st.sidebar.title("Clash Analyzer Pro")
 st.sidebar.markdown("---")
+
+# SCAN BUTTON
+if st.sidebar.button("🔄 Neue Spiele suchen", use_container_width=True, type="primary"):
+    with st.spinner("Scanne API & synchronisiere mit Google Sheets..."):
+        get_api_data.clear()
+        c, f, errors = scan_for_battles()
+        if errors:
+            for err in errors:
+                st.sidebar.error(f"⚠️ API Fehler: {err}")
+        else:
+            st.sidebar.success(f"✅ {c} Kompetitiv / {f} Fun neu!")
+        st.rerun()
+
+# DEBUG EXPANDER
+with st.sidebar.expander("🔧 API Debug"):
+    if st.button("Server-IP & API Status prüfen", use_container_width=True):
+        try:
+            server_ip = requests.get("https://api.ipify.org", timeout=5).text
+            st.info(f"Server-IP: `{server_ip}`\nDiese IP muss im API-Key whitelisted sein!")
+        except:
+            st.warning("IP konnte nicht ermittelt werden.")
+        for name, tag in TAGS.items():
+            url = f"https://api.clashroyale.com/v1/players/%23{tag}/battlelog"
+            headers = {"Authorization": f"Bearer {API_KEY}"}
+            try:
+                res = requests.get(url, headers=headers, timeout=10)
+                if res.status_code == 200:
+                    data = res.json()
+                    deck_vals = list({b.get('deckSelection', 'N/A') for b in data[:10]})
+                    st.success(f"✅ **{name}**: OK — {len(data)} Kämpfe")
+                    st.caption(f"deckSelection Werte: {deck_vals}")
+                else:
+                    st.error(f"❌ **{name}**: Status {res.status_code} — {res.text[:200]}")
+            except Exception as e:
+                st.error(f"❌ **{name}**: {e}")
+
+st.sidebar.markdown("---")
 st.sidebar.write("**System-Status**")
 st.sidebar.write(f"Datensätze (Lokal): {len(df_comp)}")
 st.sidebar.write(f"Datensätze (Global): {len(df_global)}")
@@ -379,14 +477,14 @@ with tab_dbl:
 
         st.markdown("---")
         h2h_df, curr_streak, at_streak = get_h2h_stats_data(df_comp)
-        
+
         st.subheader("Head-to-Head Historie")
         st.markdown("<div style='color:#888; font-size:13px; margin-top:-10px; margin-bottom:10px;'>Direkter Vergleich aller Begegnungen. Wer dominiert wen?</div>", unsafe_allow_html=True)
         col1, col2 = st.columns(2)
         col1.metric("Aktuelle Winstreak", f"{curr_streak['count']}x", curr_streak['player'])
         col2.metric("All-Time Rekord", f"{at_streak['count']}x", at_streak['player'])
         st.dataframe(h2h_df, use_container_width=True, hide_index=True)
-        
+
         st.markdown("---")
         if lb_data:
             c1, c2 = st.columns(2)
@@ -414,7 +512,7 @@ with tab_spieler_loc:
                 st.write(f"**Trophäen:** {p_data['Trophies']} (Max: {p_data['Max_Trophies']})")
                 st.write(f"**Matches:** {matches} | **Wins:** {wins} | **Losses:** {losses}")
                 st.write(f"**Global WR:** {wr_global:.1f}%")
-            
+
             st.markdown("---")
             p_df = df_comp[(df_comp['Spieler1'] == name) | (df_comp['Spieler2'] == name)].sort_values('ID')
             if not p_df.empty:
@@ -431,7 +529,7 @@ with tab_spieler_loc:
                     history_html += f"<div style='margin-bottom: 4px;'><span style='color: {res_col}; font-weight: bold; width: 20px; display: inline-block;'>{res_text}</span> vs {opp} ({s_me}:{s_opp})</div>"
                 history_html += "</div>"
                 st.markdown(history_html, unsafe_allow_html=True)
-                
+
             st.markdown("---")
             top_u, top_w = calculate_card_stats(name, df_comp)
             if not top_u.empty:
@@ -442,50 +540,50 @@ with tab_spieler_loc:
 with tab_spieler_glob:
     st.header("Globale Spieler-Analyse (Deep Dive)")
     st.markdown("<div style='color:#888; font-size:13px; margin-top:-10px; margin-bottom:20px;'>Nutzt das Archiv (Global_Data) aller weltweit gespielten Matches des Accounts.</div>", unsafe_allow_html=True)
-    
+
     selected_p = st.selectbox("Spieler auswählen:", list(TAGS.keys()), key="detail_player")
-    
+
     if df_global.empty:
         st.warning("Keine Daten in Global_Data gefunden. Lass den Bot erst laufen!")
     else:
         p_global = df_global[df_global['Spieler'] == selected_p].sort_values('Time_ID')
-        
+
         if p_global.empty:
             st.info(f"Keine globalen Spiele für {selected_p} im Archiv gefunden.")
         else:
             total_global_games = len(p_global)
             st.markdown(f"<div style='color:#4CAF50; font-weight:bold; margin-bottom:10px;'>Berechnungen basieren auf {total_global_games} archivierten globalen Spielen.</div>", unsafe_allow_html=True)
-            
+
             b_games, b_wins, b_losses = 0, 0, 0
             crowns_for, crowns_against = 0, 0
             clean_sheets, clutch_games, clutch_wins, three_crown_wins = 0, 0, 0, 0
             unique_cards = set()
-            
+
             last_5_html = "<div style='background-color: #121212; border-radius: 6px; border: 1px solid #333; padding: 0 15px; font-family: sans-serif;'>"
-            
+
             count = 0
-            for i, r in p_global.iloc[::-1].iterrows(): 
+            for i, r in p_global.iloc[::-1].iterrows():
                 my_cr = r['Score_Me']
                 op_cr = r['Score_Opp']
                 opp_name = r['Opponent']
-                
+
                 b_games += 1
                 crowns_for += my_cr
                 crowns_against += op_cr
-                
+
                 if op_cr == 0: clean_sheets += 1
                 if abs(my_cr - op_cr) == 1:
                     clutch_games += 1
                     if my_cr > op_cr: clutch_wins += 1
                 if my_cr == 3 and my_cr > op_cr: three_crown_wins += 1
-                
+
                 if my_cr > op_cr: b_wins += 1
                 elif my_cr < op_cr: b_losses += 1
-                
+
                 cards_str = str(r.get('Karten', ''))
                 for c in cards_str.split(","):
                     if c.strip(): unique_cards.add(c.strip())
-                
+
                 if count < 5:
                     t = parse_time(r['Time_ID'])
                     t_str = t.strftime("%d.%m %H:%M") if pd.notnull(t) else "Unbekannt"
@@ -494,7 +592,7 @@ with tab_spieler_glob:
                     w_me = "bold" if my_cr > op_cr else "normal"
                     w_op = "bold" if op_cr > my_cr else "normal"
                     border_bottom = "border-bottom: 1px solid #222;" if count != 4 else ""
-                    
+
                     last_5_html += f"""
 <div style='display: flex; justify-content: space-between; align-items: center; {border_bottom} padding: 12px 0;'>
 <div style='width: 20%; color: #666; font-size: 0.85rem;'>{t_str}</div>
@@ -507,7 +605,7 @@ with tab_spieler_glob:
 """
                 count += 1
             last_5_html += "</div>"
-            
+
             wr_recent = (b_wins / b_games * 100) if b_games > 0 else 0
             avg_cr_for = crowns_for / b_games if b_games > 0 else 0
             avg_cr_ag = crowns_against / b_games if b_games > 0 else 0
@@ -515,7 +613,7 @@ with tab_spieler_glob:
             clutch_pct = (clutch_wins / clutch_games * 100) if clutch_games > 0 else 0
             three_cr_pct = (three_crown_wins / b_wins * 100) if b_wins > 0 else 0
             flex_index = len(unique_cards)
-            
+
             st.markdown("---")
             c1, c2, c3 = st.columns(3)
             with c1:
@@ -535,7 +633,7 @@ with tab_spieler_glob:
                 st.markdown("**7. Deck-Flexibilität**")
                 st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:30px;'>Anzahl genutzter einzigartiger Karten. Je höher, desto unberechenbarer.</div>", unsafe_allow_html=True)
                 st.metric(label="Gespielte einzigartige Karten", value=flex_index, delta=f"Aus {b_games} Matches", delta_color="off")
-                
+
             c4, c5, c6 = st.columns(3)
             with c4:
                 st.markdown("**4. Zu-Null-Quote (Clean Sheets)**")
@@ -568,7 +666,7 @@ with tab_spieler_glob:
             with st.expander("Erklärungen und Formeln zu den Kennzahlen (Ausklappen)"):
                 st.markdown("""
                 Diese Daten basieren auf den im Archiv hinterlegten globalen Spielen.
-                
+
                 **1. Historische Formkurve:** Die exakte Siegquote aller erfassten globalen Spiele. Formel: $\\frac{Siege}{Matches} \\times 100$
                 **2 & 3. Offensiv/Defensiv:** Durchschnitt der geholten/zugelassenen Kronen pro Spiel. Formel: $\\frac{\\sum Kronen}{Matches}$
                 **4. Zu-Null-Quote:** Spiele ohne eine einzige zugelassene Krone des Gegners. Formel: $\\frac{Spiele\\ mit\\ 0\\ Gegentoren}{Matches} \\times 100$
@@ -615,7 +713,7 @@ with tab_trends:
 with tab_sessions:
     st.header("Session Leaderboards")
     st.markdown("<div style='color:#888; font-size:13px; margin-top:-10px; margin-bottom:20px;'>Zusammenhängende Spiel-Sessions (Unterbrechungen von max. 30 Minuten). Das King-of-the-Hill (KotH) Rating ermittelt den MVP der Session.</div>", unsafe_allow_html=True)
-    
+
     if df_comp.empty:
         st.warning("Keine Datenbasis für Sessions vorhanden.")
     else:
@@ -625,23 +723,22 @@ with tab_sessions:
             s_df = sessions[selected_s].copy()
             s_df['Time'] = s_df['ID'].apply(parse_time)
             s_df_valid = s_df.dropna(subset=['Time']).sort_values('Time')
-            
+
             if not s_df_valid.empty:
                 dur = (s_df_valid['Time'].iloc[-1] + timedelta(minutes=3)) - s_df_valid['Time'].iloc[0]
                 h, r = divmod(dur.total_seconds(), 3600)
                 m, s = divmod(r, 60)
                 dur_str = f"{int(h)}h {int(m)}m {int(s)}s" if h>0 else (f"{int(m)}m {int(s)}s" if m>0 else f"{int(s)}s")
                 st.info(f"**Gesamtdauer:** {dur_str} | **Spiele gespielt:** {len(s_df)}")
-            
+
             lb = get_session_leaderboard(s_df)
-            if not lb.empty: 
+            if not lb.empty:
                 st.dataframe(lb, use_container_width=True)
-                
+
                 with st.expander("Erklärung: Wie wird das King of the Hill (KotH) Rating berechnet?"):
                     st.markdown("""
                     Das **KotH-Rating (0-10)** bewertet den Most Valuable Player (MVP) der Session.
-                    Es bestraft Spieler, die nur 1x spielen, gewinnen und dann aufhören ("Leaver"), und belohnt diejenigen, die das Schlachtfeld dominieren.
-                    
+
                     **Die Formel (Maximal 10 Punkte):**
                     *   **Winrate (Max 4.0 Pkt):** Basis-Skillfaktor. Formel: $Winrate \\times 4.0$
                     *   **Dominanz (Max 3.5 Pkt):** Anteil an den maximalen Siegen des besten Spielers. Formel: $\\frac{Eigene Siege}{Max Siege aller Spieler} \\times 3.5$
@@ -655,7 +752,7 @@ with tab_sessions:
 with tab_prognose:
     st.header("Live-Quoten & Prognose")
     st.markdown("<div style='color:#888; font-size:13px; margin-top:-10px; margin-bottom:20px;'>Automatische Buchmacher-Quoten basierend auf Head-to-Head Historie und aktueller Tagesform.</div>", unsafe_allow_html=True)
-    
+
     if not df_comp.empty:
         pairs = list(itertools.combinations(TAGS.keys(), 2))
         cols = st.columns(3)
@@ -686,21 +783,21 @@ with tab_prognose:
 <div style='font-size: 0.75rem; color: #888; text-align: center; text-transform: uppercase;'>{insight}</div>
 </div>
 """, unsafe_allow_html=True)
-        
+
         with st.expander("Erklärung: Wie werden diese Buchmacher-Quoten berechnet?"):
             st.markdown("""
             Die App berechnet für jedes Matchup einen **Power-Score** für beide Spieler, der sich aus drei historischen Faktoren zusammensetzt.
-            
+
             **1. Der Score:**
             Jeder Spieler startet mit 100 Basis-Punkten. Darauf werden addiert:
             *   **H2H-Bonus:** Historische Winrate gegen diesen spezifischen Gegner. Formel: $1.5 \\times (H2H_{WR} - 50)$
             *   **Formkurve:** Jeder Net-Win aus der jüngsten Vergangenheit gibt +2 Punkte.
             *   **Momentum:** Eine aktive Siegesserie bringt zusätzliche Punkte. Formel: $+4 \\times Streak$.
-            
+
             **2. Die Wahrscheinlichkeit:**
             Berechnet sich aus dem Anteil am Gesamt-Score beider Spieler:
             $Prob_{A} = \\frac{Score_A}{Score_A + Score_B}$
-            
+
             **3. Die Quote:**
             Typische Sportwetten-Logik: $Quote = 1 / Wahrscheinlichkeit$. (Eine 50% Chance = Quote 2.00).
             """)
@@ -726,8 +823,7 @@ with tab_analyse:
 
             with st.expander("Erklärung: Was bedeutet der Power-Index?"):
                 st.markdown("""
-                Der Power-Index (PI) ist ein Tacho für die **aktuelle Hitze** eines Spielers. Er ignoriert die All-Time Stats komplett.
-                Jeder Spieler ruht bei einem neutralen Wert von 50.
+                Der Power-Index (PI) ist ein Tacho für die **aktuelle Hitze** eines Spielers.
                 *   **Form (letzte 15 Spiele):** $NetWins \\times 2.5$
                 *   **Momentum:** $Streak \\times 5.0$
                 **Die Formel:**
@@ -776,7 +872,7 @@ with tab_dna:
     else:
         st.subheader("Glicko Konsistenz-Index (Volatilität)")
         st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:15px;'>Misst Nervenstärke und Verlässlichkeit (0-100). Wer extremen Schwankungen (Tilts/Winstreaks) unterliegt, bekommt einen niedrigen Wert.</div>", unsafe_allow_html=True)
-        
+
         for p in TAGS.keys():
             score, label, color = get_consistency_score(p, df_comp)
             st.markdown(f"""
@@ -797,11 +893,7 @@ with tab_dna:
         with st.expander("Erklärung: Wie wird die Konsistenz berechnet?"):
             st.markdown("""
             Der Score misst die **Volatilität** – also wie extrem die Leistung schwankt.
-            
-            Ein Spieler, der exakt 50% Winrate hat, kann diese auf zwei Arten erreichen:
-            1.  **Die Maschine:** Sieg, Niederlage, Sieg, Niederlage. (Er ist konstant, man weiß was man bekommt).
-            2.  **Die Wundertüte:** 10 Siege in Folge, danach 10 Niederlagen am Stück in einem Tilt. (Er ist extrem unberechenbar).
-            
+
             **Die Formel:**
             Wir berechnen den Durchschnitt der Längen aller Serien ($\\overline{Streak}$).
             $Konsistenz = 100 - ((\\overline{Streak} - 1) \\times 25)$
@@ -810,10 +902,10 @@ with tab_dna:
         st.markdown("---")
         st.subheader("Deck-Synergien (Deadly Duos)")
         st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:15px;'>Welche 2-Karten-Kombinationen im selben Deck erzielen für diesen Spieler die absolut höchste Siegwahrscheinlichkeit? (Min. 3 Einsätze)</div>", unsafe_allow_html=True)
-        
+
         sel_player = st.selectbox("Wähle einen Spieler für die Analyse:", list(TAGS.keys()), key="dna_player")
         synergy_df = get_top_synergies(sel_player, df_comp)
-        
+
         if synergy_df.empty:
             st.info("Zu wenige Daten für Kombinationen (Gleiche Karten müssen öfter gespielt werden).")
         else:
@@ -840,26 +932,26 @@ with tab_mc:
         sim_count = col_c1.select_slider("Anzahl der Universen (Simulationen):", options=[100, 1000, 5000, 10000, 50000], value=10000)
         target_w = col_c2.slider("Turnier-Ziel (Race to X Wins):", min_value=3, max_value=200, value=50, step=1)
         fw = col_c3.slider("Gewichtung der Tagesform:", min_value=0.0, max_value=2.0, value=1.0, step=0.1)
-        
+
         if st.button("Turnier-Simulation starten", type="primary", use_container_width=True):
             res_dict, total_sweeps = run_monte_carlo_tournament(df_comp, target_w, sim_count, fw)
             st.session_state['mc_results'] = res_dict
             st.session_state['mc_sweeps'] = total_sweeps
             st.session_state['mc_sims'] = sim_count
             st.session_state['mc_target'] = target_w
-            
+
         st.markdown("---")
-        
+
         if st.session_state['mc_results']:
             res_dict = st.session_state['mc_results']
             sims_done = st.session_state['mc_sims']
             res_df = pd.DataFrame(list(res_dict.items()), columns=['Spieler', 'Turniersiege'])
             res_df['Wahrscheinlichkeit'] = (res_df['Turniersiege'] / sims_done) * 100
             res_df = res_df.sort_values(by='Turniersiege', ascending=False)
-            
+
             st.subheader(f"Ergebnisse aus {sims_done:,} Turnieren".replace(',', '.'))
             vis_choice = st.selectbox("Visualisierung auswählen:", ["1. Klassisches Podest (Balkendiagramm)", "2. Kuchen-Verteilung (Kreisdiagramm)", "3. Wahrscheinlichkeits-Tacho", "4. Harte Fakten (Zahlen)"])
-            
+
             col_chart, col_stats = st.columns([2, 1])
             with col_chart:
                 if "Podest" in vis_choice:
@@ -891,57 +983,49 @@ with tab_mc:
                 st.info(f"**Top-Favorit:**<br>Zu {res_df.iloc[0]['Wahrscheinlichkeit']:.1f}% gewinnt **{res_df.iloc[0]['Spieler']}**.")
                 st.warning(f"**Vernichtungs-Quote (Sweeps):**<br>{(st.session_state['mc_sweeps']/sims_done)*100:.1f}%<br><span style='font-size:0.75rem; color:#888;'>Anteil der Turniere, in denen der Sieger alle anderen völlig deklassiert hat.</span>")
 
-# --- TAB 11: FLEXUS (ABI TERMINAL) ---
+# --- TAB 11: FLEXUS ---
 with tab_flexus:
-    # 1. Begrüßung
     st.markdown("""
         <div style='background: linear-gradient(90deg, #1e1e2f 0%, #121212 100%); padding: 25px; border-radius: 15px; border-left: 5px solid #4CAF50; margin-bottom: 25px;'>
             <h1 style='margin:0; color: #FFF; font-family: sans-serif; font-weight: 800; letter-spacing: -1px;'>🤴 flexus abi statistik</h1>
             <p style='margin:0; color: #888; font-size: 0.9rem;'>Zentrale Dateneinsicht & Live-Prognosen | Global Account</p>
         </div>
     """, unsafe_allow_html=True)
-    
+
     f_name = "Flexus"
-    
-    # 2. Datenbeschaffung
+
     f_prof_all = df_prof[df_prof['Spieler'] == f_name]
     f_glob = df_global[df_global['Spieler'] == f_name].sort_values('Time_ID')
 
     if f_prof_all.empty:
         st.warning("⚠️ Keine Profildaten für Flexus gefunden. Bitte Bot-Verbindung prüfen.")
     else:
-        # Aktuellster Stand für die Metriken
         f_prof = f_prof_all.iloc[-1]
-        
-        # --- TOP SECTION: HARTE FAKTEN ---
+
         st.subheader("📊 Harte Fakten")
         c1, c2, c3, c4, c5, c6 = st.columns(6)
-        
         c1.metric("Trophäen", f"{f_prof['Trophies']}")
         c2.metric("Rekord", f"{f_prof['Max_Trophies']}")
         c3.metric("Matches", f"{f_prof['Matches']:,}".replace(',', '.'))
         c4.metric("Wins", f"{f_prof['Wins']:,}".replace(',', '.'))
         c5.metric("Losses", f"{f_prof['Losses']:,}".replace(',', '.'))
-        
         wr_f = (f_prof['Wins'] / f_prof['Matches'] * 100) if f_prof['Matches'] > 0 else 0
         c6.metric("Winrate", f"{wr_f:.1f}%")
 
         st.markdown("---")
 
-        # --- QUOTE / PROGNOSE ---
         st.subheader("🎲 Live-Quote: Nächstes Spiel")
         st.markdown("<div style='color:#888; font-size:12px; margin-top:-10px; margin-bottom:15px;'>Buchmacher-Quote gegen einen durchschnittlichen Ladder-Gegner. Basiert auf globaler Winrate, Tagesform (letzte 15) und aktuellem Momentum.</div>", unsafe_allow_html=True)
-        
+
         if not f_glob.empty:
-            # Stats für die Quotenberechnung extrahieren
             f_total_games = len(f_glob)
             f_total_wins = sum(1 for _, r in f_glob.iterrows() if r['Score_Me'] > r['Score_Opp'])
             f_global_wr = (f_total_wins / f_total_games * 100) if f_total_games > 0 else 50
-            
+
             f_last_15 = f_glob.tail(15)
             f_net_wins, f_streak = 0, 0
             f_is_win_streak = None
-            
+
             for _, r in f_last_15.iterrows():
                 p_won = r['Score_Me'] > r['Score_Opp']
                 if p_won:
@@ -952,28 +1036,26 @@ with tab_flexus:
                     f_net_wins -= 1
                     if f_is_win_streak in (None, False): f_streak += 1; f_is_win_streak = False
                     else: f_streak = 1; f_is_win_streak = False
-            
+
             actual_streak = f_streak if f_is_win_streak else -f_streak
-            
-            # Die Logik (Flexus Base vs. Standard-Gegner Base 100)
+
             score_flexus = max(10, 100 + (f_global_wr - 50)*1.5 + (f_net_wins * 2) + (actual_streak * 4))
             score_field = 100
-            
+
             prob_flexus = score_flexus / (score_flexus + score_field)
             prob_field = score_field / (score_flexus + score_field)
             odds_flexus = max(1.01, round(1 / prob_flexus, 2))
             odds_field = max(1.01, round(1 / prob_field, 2))
-            
+
             pf_pct = prob_flexus * 100
             po_pct = prob_field * 100
-            
-            # Dynamischer Kommentar zur Quote
+
             insight = "Ausgeglichenes Matchmaking"
             if f_global_wr > 55: insight = f"Starke globale Winrate ({f_global_wr:.1f}%)"
             if actual_streak >= 3: insight = f"Momentum Flexus (+{actual_streak} Win-Streak)"
             elif actual_streak <= -3: insight = f"Tilt-Gefahr ({actual_streak} Lose-Streak)"
             elif f_net_wins >= 4: insight = "Gute Tagesform (+ Net-Wins)"
-            
+
             st.markdown(f"""
             <div style='background-color: #121212; color: #FFF; padding: 15px; border-radius: 6px; border: 1px solid #333; margin-bottom: 20px; font-family: sans-serif; max-width: 800px;'>
             <div style='text-align: center; font-weight: 600; font-size: 1rem; margin-bottom: 15px; border-bottom: 1px solid #222; padding-bottom: 8px;'>
@@ -1001,33 +1083,21 @@ with tab_flexus:
 
         st.markdown("---")
 
-        # --- MIDDLE SECTION: HISTORIE & GRAPH ---
         col_left, col_right = st.columns([1, 1.2])
 
         with col_left:
             st.subheader("🕹️ Letzte 5 Spiele")
             if not f_glob.empty:
                 f_last_5 = f_glob.tail(5).iloc[::-1]
-                
                 rows_html = ""
                 for _, r in f_last_5.iterrows():
                     my, op = r['Score_Me'], r['Score_Opp']
-                    
-                    # Farbiger Resultat-Tag
-                    if my > op:
-                        chip = "<span style='color:#4CAF50; font-weight:bold; letter-spacing:1px;'>WIN</span>"
-                    elif my < op:
-                        chip = "<span style='color:#F44336; font-weight:bold; letter-spacing:1px;'>LOSS</span>"
-                    else:
-                        chip = "<span style='color:#888; font-weight:bold; letter-spacing:1px;'>DRAW</span>"
-                    
-                    # Zeit formatieren (Aus YYYYMMDDTHHMMSS -> DD.MM HH:MM)
+                    if my > op: chip = "<span style='color:#4CAF50; font-weight:bold; letter-spacing:1px;'>WIN</span>"
+                    elif my < op: chip = "<span style='color:#F44336; font-weight:bold; letter-spacing:1px;'>LOSS</span>"
+                    else: chip = "<span style='color:#888; font-weight:bold; letter-spacing:1px;'>DRAW</span>"
                     t_str = str(r['Time_ID'])
-                    if len(t_str) >= 13:
-                        t_format = f"{t_str[6:8]}.{t_str[4:6]} {t_str[9:11]}:{t_str[11:13]}"
-                    else:
-                        t_format = "Unbekannt"
-
+                    if len(t_str) >= 13: t_format = f"{t_str[6:8]}.{t_str[4:6]} {t_str[9:11]}:{t_str[11:13]}"
+                    else: t_format = "Unbekannt"
                     rows_html += f"""
                         <div style='background: #121212; padding: 12px; border-radius: 8px; border: 1px solid #222; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; font-family: sans-serif;'>
                             <div style='width: 25%; font-size: 0.8rem; color: #888;'>{t_format}</div>
@@ -1043,24 +1113,18 @@ with tab_flexus:
         with col_right:
             st.subheader("📈 Trophäen-Entwicklung")
             if len(f_prof_all) > 1:
-                # Schalter für die Zeitspanne
                 trend_filter = st.radio("Zeitraum auswählen:", ["All-Time", "Letzte 15 Messungen"], horizontal=True, label_visibility="collapsed")
-                
-                # Daten filtern
                 plot_data = f_prof_all.tail(15) if "15" in trend_filter else f_prof_all
-
-                # Graph zeichnen
                 fig_trend = px.line(plot_data, x=plot_data.index, y='Trophies', markers=True)
                 fig_trend.update_layout(
-                    height=350, 
+                    height=350,
                     margin=dict(l=0, r=0, t=10, b=0),
-                    paper_bgcolor="rgba(0,0,0,0)", 
+                    paper_bgcolor="rgba(0,0,0,0)",
                     plot_bgcolor="rgba(0,0,0,0)",
                     font={'color': "#FFF"},
-                    xaxis={'showgrid': False, 'visible': False}, # Versteckt die unnötige X-Achse
+                    xaxis={'showgrid': False, 'visible': False},
                     yaxis={'gridcolor': '#222', 'title': 'Trophäen'}
                 )
-                # Design der Linie
                 fig_trend.update_traces(line_color='#4CAF50', line_width=3, marker=dict(size=8, color="#FFF", line=dict(width=2, color="#4CAF50")))
                 st.plotly_chart(fig_trend, use_container_width=True)
             else:
