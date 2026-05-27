@@ -27,7 +27,7 @@ SOLO_TAGS = {
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1SZQhK7TeBRI6DspxVJWU31ul_PGTXNOoxcOwE6rn2u8/edit?gid=641247476#gid=641247476"
 
-API_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjMzNDU1MzI5LWNlOGItNDg5ZS04Yjk4LTFlZjA5OWE3Yzg4NiIsImlhdCI6MTc3OTkxNjkyNCwic3ViIjoiZGV2ZWxvcGVyL2MyYjczNjYyLWE2YjYtNzdkMC00N2I4LTM5YjE0MWYyNzcxOCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyIzNS4yMDMuMTg3LjE2NSJdLCJ0eXBlIjoiY2xpZW50In1dfQ.YJhyIwIQTMYfPi5mFKGwAhzJ23kp5jPPH-dSRkPggflwWS6afmCGsz1wzq1I270K23aqppsvE7dxZKgzu8Hgfw"
+API_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjhjMzk2MDM1LTgyMzMtNGFhMi04YzVjLTg3NjVmZDliYjE0MSIsImlhdCI6MTc3Nzk4NDU2Niwic3ViIjoiZGV2ZWxvcGVyL2MyYjczNjYyLWE2YjYtNzdkMC00N2I4LTM5YjE0MWYyNzcxOCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyI5Mi4yMDguMjUuMTIiXSwidHlwZSI6ImNsaWVudCJ9XX0.LG_Q_jELSrMoeRPVVU5saPFnNWBrGbzaaaXtl_4HvKEMd-jDBBldJUpLZXQJ2101_tGsxgQ-3bU5tejtmY3wQg"
 
 # --- GOOGLE SHEETS SETUP ---
 @st.cache_resource
@@ -421,26 +421,55 @@ if st.sidebar.button("🔄 Neue Spiele suchen", use_container_width=True, type="
 
 # DEBUG EXPANDER
 with st.sidebar.expander("🔧 API Debug"):
-    if st.button("Server-IP & API Status prüfen", use_container_width=True):
-        try:
-            server_ip = requests.get("https://api.ipify.org", timeout=5).text
-            st.info(f"Server-IP: `{server_ip}`\nDiese IP muss im API-Key whitelisted sein!")
-        except:
-            st.warning("IP konnte nicht ermittelt werden.")
+    if st.button("Vollständige Diagnose", use_container_width=True):
+        known_tags = set(TAGS.values())
         for name, tag in TAGS.items():
             url = f"https://api.clashroyale.com/v1/players/%23{tag}/battlelog"
             headers = {"Authorization": f"Bearer {API_KEY}"}
             try:
                 res = requests.get(url, headers=headers, timeout=10)
-                if res.status_code == 200:
-                    data = res.json()
-                    deck_vals = list({b.get('deckSelection', 'N/A') for b in data[:10]})
-                    st.success(f"✅ **{name}**: OK — {len(data)} Kämpfe")
-                    st.caption(f"deckSelection Werte: {deck_vals}")
+                if res.status_code != 200:
+                    st.error(f"❌ **{name}**: Status {res.status_code}")
+                    continue
+
+                data = res.json()
+                st.success(f"✅ **{name}**: {len(data)} Kämpfe im Log")
+
+                # Zeige die letzten 5 Gegner-Tags RAW
+                st.markdown(f"**Letzte 5 Gegner-Tags von {name}:**")
+                matches_found = 0
+                for b in data[:5]:
+                    if not b.get('opponent'): continue
+                    raw_tag = b['opponent'][0].get('tag', 'KEIN TAG')
+                    clean_tag = raw_tag.replace('#', '')
+                    is_crew = clean_tag in known_tags
+                    marker = "🟢 CREW-MATCH!" if is_crew else "⚪"
+                    deck_val = b.get('deckSelection', 'FEHLT')
+                    st.caption(f"{marker} Raw: `{raw_tag}` | Clean: `{clean_tag}` | deck: `{deck_val}`")
+                    if is_crew:
+                        matches_found += 1
+
+                # Prüfe ob ein Crew-Match irgendwo in den letzten 25 Kämpfen ist
+                crew_matches_total = 0
+                for b in data:
+                    if not b.get('opponent'): continue
+                    opp_tag = b['opponent'][0].get('tag', '').replace('#', '')
+                    if opp_tag in known_tags:
+                        crew_matches_total += 1
+
+                if crew_matches_total == 0:
+                    st.warning(f"⚠️ Kein einziges Crew-Match in den letzten {len(data)} Kämpfen von {name} gefunden. Die Spieler haben möglicherweise noch nicht gegeneinander gespielt — oder die Tags in TAGS stimmen nicht mit den echten API-Tags überein.")
                 else:
-                    st.error(f"❌ **{name}**: Status {res.status_code} — {res.text[:200]}")
+                    st.info(f"🎯 {crew_matches_total} Crew-Matches gefunden in {len(data)} Kämpfen")
+
             except Exception as e:
                 st.error(f"❌ **{name}**: {e}")
+
+        # TAG Vergleich: Was ist in TAGS vs was kommt aus der API
+        st.markdown("---")
+        st.markdown("**TAGS-Konfiguration (zum Vergleich):**")
+        for n, t in TAGS.items():
+            st.caption(f"`{n}` → `{t}`")
 
 st.sidebar.markdown("---")
 st.sidebar.write("**System-Status**")
