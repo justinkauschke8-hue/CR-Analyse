@@ -27,7 +27,7 @@ SOLO_TAGS = {
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1SZQhK7TeBRI6DspxVJWU31ul_PGTXNOoxcOwE6rn2u8/edit?gid=641247476#gid=641247476"
 
-API_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6ImI1N2FhM2ZkLTZlZjgtNGQzOS1iYTMyLTY0NzZhNTZkMDA4YSIsImlhdCI6MTc3OTkxOTExMCwic3ViIjoiZGV2ZWxvcGVyL2MyYjczNjYyLWE2YjYtNzdkMC00N2I4LTM5YjE0MWYyNzcxOCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyI4NC4xNjYuMTcuMjA5Il0sInR5cGUiOiJjbGllbnQifV19.WmbtXxVy8leKh2dr1OcSs821O-cp0eKyT6Xu4rxGieDFG2jHxBmguBI88AOGmuJilxiZ6e4tEa2DkWmeUKK4iA"
+API_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjhjMzk2MDM1LTgyMzMtNGFhMi04YzVjLTg3NjVmZDliYjE0MSIsImlhdCI6MTc3Nzk4NDU2Niwic3ViIjoiZGV2ZWxvcGVyL2MyYjczNjYyLWE2YjYtNzdkMC00N2I4LTM5YjE0MWYyNzcxOCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyI5Mi4yMDguMjUuMTIiXSwidHlwZSI6ImNsaWVudCJ9XX0.LG_Q_jELSrMoeRPVVU5saPFnNWBrGbzaaaXtl_4HvKEMd-jDBBldJUpLZXQJ2101_tGsxgQ-3bU5tejtmY3wQg"
 
 # --- GOOGLE SHEETS SETUP ---
 @st.cache_resource
@@ -132,6 +132,7 @@ def parse_time(id_str):
     except: return pd.NaT
 
 def calculate_card_stats(spieler, df):
+    if df.empty or 'Spieler1' not in df.columns: return pd.DataFrame(), pd.DataFrame()
     p_df = df[(df['Spieler1'] == spieler) | (df['Spieler2'] == spieler)]
     if len(p_df) == 0: return pd.DataFrame(), pd.DataFrame()
     counts = {}
@@ -197,6 +198,34 @@ def get_player_form_and_streak(player, df):
     net_wins = wins - (len(p_df) - wins)
     actual_streak = streak if is_win_streak else -streak
     return net_wins, actual_streak
+
+def get_global_streaks(player, df_global):
+    """Persönliche Streak-Analyse über ALLE globalen Spiele eines Spielers (nicht nur die internen 1v1).
+    Gibt zurück: (aktuelle_streak_signiert, längste_winstreak, längste_lostreak, anzahl_spiele).
+    Positiv = aktive Siegesserie, Negativ = aktive Niederlagenserie, 0 = Unentschieden/keine Serie."""
+    if df_global is None or df_global.empty or 'Spieler' not in df_global.columns:
+        return 0, 0, 0, 0
+    p_df = df_global[df_global['Spieler'] == player].sort_values('Time_ID')
+    if p_df.empty:
+        return 0, 0, 0, 0
+    outcomes = []
+    for _, r in p_df.iterrows():
+        if r['Score_Me'] > r['Score_Opp']: outcomes.append('W')
+        elif r['Score_Me'] < r['Score_Opp']: outcomes.append('L')
+        else: outcomes.append('D')
+    longest_win, longest_lose, run, run_type = 0, 0, 0, None
+    for o in outcomes:
+        if o == run_type: run += 1
+        else: run, run_type = 1, o
+        if o == 'W': longest_win = max(longest_win, run)
+        elif o == 'L': longest_lose = max(longest_lose, run)
+    last = outcomes[-1]
+    cur = 0
+    for o in reversed(outcomes):
+        if o == last: cur += 1
+        else: break
+    current_signed = cur if last == 'W' else (-cur if last == 'L' else 0)
+    return current_signed, longest_win, longest_lose, len(outcomes)
 
 def calc_matchup_odds(p1, p2, df, form_weight=1.0):
     match_df = df[((df['Spieler1'] == p1) & (df['Spieler2'] == p2)) | ((df['Spieler1'] == p2) & (df['Spieler2'] == p1))]
@@ -284,6 +313,49 @@ def get_session_leaderboard(session_df):
     df_lb = pd.DataFrame(leaderboard).sort_values(by="Rating (KotH)", ascending=False).reset_index(drop=True)
     df_lb.index = df_lb.index + 1
     return df_lb
+
+def get_session_analysis(session_df):
+    """Detaillierte Per-Spieler-Statistiken + chronologischer Momentum-Verlauf einer Session.
+    Returns: (stats_dict, players_list, timeline_df).
+    timeline_df enthält die kumulierten Netto-Siege jedes Spielers nach jedem Spiel (für Verlaufs-Grafik)."""
+    sdf = session_df.copy()
+    sdf['Time'] = sdf['ID'].apply(parse_time)
+    sdf = sdf.dropna(subset=['Time']).sort_values('Time')
+    if sdf.empty:
+        sdf = session_df.copy().sort_values('ID')
+    present = set(sdf['Spieler1']).union(set(sdf['Spieler2']))
+    players = [p for p in TAGS.keys() if p in present]
+    stats = {p: {"P": 0, "W": 0, "L": 0, "CF": 0, "CA": 0, "cur": 0, "is_win": None, "max_w": 0, "max_l": 0} for p in players}
+    cum = {p: 0 for p in players}
+    timeline = [{"Spiel": 0, "Spieler": p[:10], "Netto-Siege": 0} for p in players]
+    game_idx = 0
+    for _, row in sdf.iterrows():
+        p1, p2 = row['Spieler1'], row['Spieler2']
+        if p1 not in stats or p2 not in stats: continue
+        game_idx += 1
+        s1, s2 = int(row['Score1']), int(row['Score2'])
+        stats[p1]["P"] += 1; stats[p2]["P"] += 1
+        stats[p1]["CF"] += s1; stats[p1]["CA"] += s2
+        stats[p2]["CF"] += s2; stats[p2]["CA"] += s1
+        if s1 > s2:
+            stats[p1]["W"] += 1; stats[p2]["L"] += 1; cum[p1] += 1; cum[p2] -= 1
+            if stats[p1]["is_win"] == True: stats[p1]["cur"] += 1
+            else: stats[p1]["is_win"], stats[p1]["cur"] = True, 1
+            stats[p1]["max_w"] = max(stats[p1]["max_w"], stats[p1]["cur"])
+            if stats[p2]["is_win"] == False: stats[p2]["cur"] += 1
+            else: stats[p2]["is_win"], stats[p2]["cur"] = False, 1
+            stats[p2]["max_l"] = max(stats[p2]["max_l"], stats[p2]["cur"])
+        elif s2 > s1:
+            stats[p2]["W"] += 1; stats[p1]["L"] += 1; cum[p2] += 1; cum[p1] -= 1
+            if stats[p2]["is_win"] == True: stats[p2]["cur"] += 1
+            else: stats[p2]["is_win"], stats[p2]["cur"] = True, 1
+            stats[p2]["max_w"] = max(stats[p2]["max_w"], stats[p2]["cur"])
+            if stats[p1]["is_win"] == False: stats[p1]["cur"] += 1
+            else: stats[p1]["is_win"], stats[p1]["cur"] = False, 1
+            stats[p1]["max_l"] = max(stats[p1]["max_l"], stats[p1]["cur"])
+        for p in players:
+            timeline.append({"Spiel": game_idx, "Spieler": p[:10], "Netto-Siege": cum[p]})
+    return stats, players, pd.DataFrame(timeline)
 
 def get_power_index(player, df):
     f, s = get_player_form_and_streak(player, df)
@@ -542,8 +614,32 @@ with tab_spieler_loc:
                 st.write(f"**Matches:** {matches} | **Wins:** {wins} | **Losses:** {losses}")
                 st.write(f"**Global WR:** {wr_global:.1f}%")
 
+            # --- Persönliche Winstreak über ALLE Spiele (Global-Archiv), nicht nur die internen 1v1 ---
+            cur_s, max_w_s, max_l_s, g_games = get_global_streaks(name, df_global)
+            if g_games == 0:
+                st.markdown("""
+<div style='background-color:#121212; border:1px solid #333; border-left:4px solid #555; border-radius:6px; padding:10px 14px; margin-top:4px; margin-bottom:4px; font-family:sans-serif;'>
+  <div style='font-size:0.72rem; color:#888; text-transform:uppercase; letter-spacing:1px;'>Persönliche Winstreak · Alle Spiele</div>
+  <div style='font-size:0.9rem; color:#777; margin-top:4px;'>Noch keine globalen Daten im Archiv.</div>
+</div>
+""", unsafe_allow_html=True)
+            else:
+                if cur_s > 0:
+                    s_color, s_icon, s_label = "#4CAF50", "🔥", f"{cur_s} Siege in Folge"
+                elif cur_s < 0:
+                    s_color, s_icon, s_label = "#F44336", "🥶", f"{abs(cur_s)} Niederlagen in Folge"
+                else:
+                    s_color, s_icon, s_label = "#888", "➖", "Keine aktive Serie"
+                st.markdown(f"""
+<div style='background-color:#121212; border:1px solid #333; border-left:4px solid {s_color}; border-radius:6px; padding:10px 14px; margin-top:4px; margin-bottom:4px; font-family:sans-serif;'>
+  <div style='font-size:0.72rem; color:#888; text-transform:uppercase; letter-spacing:1px;'>Persönliche Winstreak · Alle Spiele</div>
+  <div style='font-size:1.25rem; font-weight:700; color:{s_color}; margin-top:2px;'>{s_icon} {s_label}</div>
+  <div style='font-size:0.72rem; color:#777; margin-top:4px;'>Längste Serie: <span style='color:#4CAF50;'>+{max_w_s}</span> / <span style='color:#F44336;'>-{max_l_s}</span> · Basis: {g_games} Spiele</div>
+</div>
+""", unsafe_allow_html=True)
+
             st.markdown("---")
-            p_df = df_comp[(df_comp['Spieler1'] == name) | (df_comp['Spieler2'] == name)].sort_values('ID')
+            p_df = df_comp[(df_comp['Spieler1'] == name) | (df_comp['Spieler2'] == name)].sort_values('ID') if (not df_comp.empty and 'Spieler1' in df_comp.columns) else pd.DataFrame()
             if not p_df.empty:
                 st.markdown("**Letzte 5 Spiele (Lokal)**")
                 history_html = "<div style='font-family: monospace; font-size: 0.9rem;'>"
@@ -762,6 +858,32 @@ with tab_sessions:
 
             lb = get_session_leaderboard(s_df)
             if not lb.empty:
+                stats, players, timeline_df = get_session_analysis(s_df)
+                pstats_df = pd.DataFrame([
+                    {"Spieler": p[:10], "Matches": d["P"], "Siege": d["W"], "Niederlagen": d["L"],
+                     "Winrate": round((d["W"] / d["P"] * 100), 0) if d["P"] > 0 else 0,
+                     "Kronen (für)": d["CF"], "Kronen (gegen)": d["CA"],
+                     "Kronen-Diff": d["CF"] - d["CA"], "Beste Serie": d["max_w"]}
+                    for p, d in stats.items() if d["P"] > 0
+                ])
+
+                # --- KPI-HIGHLIGHTS: Wer hat die Session geprägt? ---
+                if not pstats_df.empty:
+                    st.subheader("Session-Highlights")
+                    mvp = lb.iloc[0]
+                    most_active = pstats_df.sort_values("Matches", ascending=False).iloc[0]
+                    best_streak = pstats_df.sort_values("Beste Serie", ascending=False).iloc[0]
+                    most_crowns = pstats_df.sort_values("Kronen (für)", ascending=False).iloc[0]
+                    best_diff = pstats_df.sort_values("Kronen-Diff", ascending=False).iloc[0]
+                    k1, k2, k3, k4, k5 = st.columns(5)
+                    k1.metric("🏆 MVP (KotH)", mvp['Spieler'], delta=f"Rating {mvp['Rating (KotH)']}", delta_color="off")
+                    k2.metric("🎮 Aktivster", most_active['Spieler'], delta=f"{int(most_active['Matches'])} Spiele", delta_color="off")
+                    k3.metric("🔥 Beste Serie", best_streak['Spieler'], delta=f"+{int(best_streak['Beste Serie'])} Siege", delta_color="off")
+                    k4.metric("👑 Meiste Kronen", most_crowns['Spieler'], delta=f"{int(most_crowns['Kronen (für)'])} geholt", delta_color="off")
+                    k5.metric("⚖️ Beste Kronen-Diff", best_diff['Spieler'], delta=f"{int(best_diff['Kronen-Diff']):+d}", delta_color="off")
+                    st.markdown("---")
+
+                st.subheader("Leaderboard (King of the Hill)")
                 st.dataframe(lb, use_container_width=True)
 
                 with st.expander("Erklärung: Wie wird das King of the Hill (KotH) Rating berechnet?"):
@@ -774,6 +896,43 @@ with tab_sessions:
                     *   **Wichtigkeit (Max 2.5 Pkt):** Wie viele Spiele der Session hast du bestritten? Formel: $\\frac{Eigene Matches}{Gesamt Matches} \\times 2.5$
                     *   **Streak-Modifikator:** Bonus für Winstreaks. Formel: $+ (\\max Winstreak - 1) \\times 0.3 - (\\max Lösestreak - 1) \\times 0.3$
                     """)
+
+                # --- VISUELLE UMFASSENDE ANALYSE: Wer hat wie gespielt? ---
+                if not pstats_df.empty:
+                    st.markdown("---")
+                    st.subheader("Visuelle Session-Analyse")
+                    st.markdown("<div style='color:#888; font-size:13px; margin-top:-10px; margin-bottom:15px;'>Wer hat in dieser Session wie gespielt? Der Momentum-Verlauf zeigt, wer sich im Laufe der Session absetzt – die übrigen Grafiken vergleichen Siege, Kronen und Effizienz.</div>", unsafe_allow_html=True)
+
+                    fig_mom = px.line(timeline_df, x="Spiel", y="Netto-Siege", color="Spieler", markers=True, title="Session-Momentum: Netto-Siege im Verlauf")
+                    fig_mom.add_hline(y=0, line_dash="dash", line_color="#555")
+                    fig_mom.update_layout(height=350, paper_bgcolor="#0E1117", plot_bgcolor="#121212", font={'color': "#FFF"}, margin=dict(t=40, b=0, l=0, r=0), xaxis_title="Spiel-Nr. (chronologisch)", yaxis_title="Kumulierte Netto-Siege")
+                    st.plotly_chart(fig_mom, use_container_width=True)
+
+                    c_a, c_b = st.columns(2)
+                    with c_a:
+                        wl_long = pstats_df.melt(id_vars="Spieler", value_vars=["Siege", "Niederlagen"], var_name="Ergebnis", value_name="Anzahl")
+                        fig_wl = px.bar(wl_long, x="Spieler", y="Anzahl", color="Ergebnis", barmode="stack", text_auto=True, color_discrete_map={"Siege": "#4CAF50", "Niederlagen": "#F44336"}, title="Siege & Niederlagen")
+                        fig_wl.update_layout(height=300, paper_bgcolor="#0E1117", plot_bgcolor="#121212", font={'color': "#FFF"}, margin=dict(t=40, b=0, l=0, r=0), xaxis_title="", yaxis_title="")
+                        st.plotly_chart(fig_wl, use_container_width=True)
+                    with c_b:
+                        cr_long = pstats_df.melt(id_vars="Spieler", value_vars=["Kronen (für)", "Kronen (gegen)"], var_name="Typ", value_name="Kronen")
+                        fig_cr = px.bar(cr_long, x="Spieler", y="Kronen", color="Typ", barmode="group", text_auto=True, color_discrete_map={"Kronen (für)": "#4CAF50", "Kronen (gegen)": "#F44336"}, title="Kronen-Bilanz (geholt vs. kassiert)")
+                        fig_cr.update_layout(height=300, paper_bgcolor="#0E1117", plot_bgcolor="#121212", font={'color': "#FFF"}, margin=dict(t=40, b=0, l=0, r=0), xaxis_title="", yaxis_title="")
+                        st.plotly_chart(fig_cr, use_container_width=True)
+
+                    c_c, c_d = st.columns(2)
+                    with c_c:
+                        fig_wr = px.bar(pstats_df.sort_values("Winrate", ascending=False), x="Spieler", y="Winrate", text_auto=".0f", color="Spieler", title="Win-Rate pro Spieler (%)")
+                        fig_wr.update_layout(height=300, yaxis=dict(range=[0, 100]), showlegend=False, paper_bgcolor="#0E1117", plot_bgcolor="#121212", font={'color': "#FFF"}, margin=dict(t=40, b=0, l=0, r=0), xaxis_title="")
+                        st.plotly_chart(fig_wr, use_container_width=True)
+                    with c_d:
+                        if pstats_df["Siege"].sum() > 0:
+                            fig_share = px.pie(pstats_df[pstats_df["Siege"] > 0], names="Spieler", values="Siege", hole=0.45, title="Sieg-Verteilung der Session")
+                            fig_share.update_traces(textposition='inside', textinfo='percent+label')
+                            fig_share.update_layout(height=300, paper_bgcolor="#0E1117", font={'color': "#FFF"}, showlegend=False, margin=dict(t=40, b=0, l=0, r=0))
+                            st.plotly_chart(fig_share, use_container_width=True)
+                        else:
+                            st.info("Keine entschiedenen Spiele für die Sieg-Verteilung.")
         else:
             st.info("Noch keine vollständigen Sessions registriert.")
 
@@ -1023,8 +1182,10 @@ with tab_flexus:
 
     f_name = "Flexus"
 
-    f_prof_all = df_prof[df_prof['Spieler'] == f_name]
-    f_glob = df_global[df_global['Spieler'] == f_name].sort_values('Time_ID')
+    # Robust gegen leere/spaltenlose Sheets: get_df_from_sheet liefert bei 0 Datensätzen
+    # einen leeren DataFrame OHNE Spalten -> df['Spieler'] würde sonst KeyError werfen.
+    f_prof_all = df_prof[df_prof['Spieler'] == f_name] if (not df_prof.empty and 'Spieler' in df_prof.columns) else pd.DataFrame()
+    f_glob = df_global[df_global['Spieler'] == f_name].sort_values('Time_ID') if (not df_global.empty and 'Spieler' in df_global.columns) else pd.DataFrame()
 
     if f_prof_all.empty:
         st.warning("⚠️ Keine Profildaten für Flexus gefunden. Bitte Bot-Verbindung prüfen.")
