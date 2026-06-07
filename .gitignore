@@ -1,0 +1,13 @@
+# Secrets — NIEMALS committen
+credentials.json.json
+.streamlit/secrets.toml
+*.bak
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# OS
+desktop.ini
+Thumbs.db
