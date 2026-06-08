@@ -382,7 +382,15 @@ def count_wins(player, df):
                if (r['Spieler1'] == player and r['Score1'] > r['Score2'])
                or (r['Spieler2'] == player and r['Score2'] > r['Score1']))
 
-def calculate_card_stats(spieler, df):
+# Zauber-Karten (englische API-Namen, kleingeschrieben) zum optionalen Ausfiltern
+SPELL_CARDS = {
+    "arrows", "fireball", "zap", "rocket", "lightning", "poison", "freeze", "rage",
+    "clone", "mirror", "tornado", "the log", "barbarian barrel", "giant snowball",
+    "snowball", "earthquake", "royal delivery", "goblin barrel", "graveyard",
+    "goblin curse", "void"
+}
+
+def calculate_card_stats(spieler, df, top_n=5, exclude_spells=False):
     if df.empty or 'Spieler1' not in df.columns: return pd.DataFrame()
     p_df = df[(df['Spieler1'] == spieler) | (df['Spieler2'] == spieler)]
     if len(p_df) == 0: return pd.DataFrame()
@@ -391,15 +399,18 @@ def calculate_card_stats(spieler, df):
         is_p1 = row['Spieler1'] == spieler
         win = (row['Score1'] > row['Score2']) if is_p1 else (row['Score2'] > row['Score1'])
         for k in str(row['Karten1'] if is_p1 else row['Karten2']).split(","):
-            k = k.strip().capitalize()
-            if k:
-                if k not in counts: counts[k] = [0, 0]
-                counts[k][0] += 1
-                if win: counts[k][1] += 1
+            k = k.strip()
+            if not k:
+                continue
+            if exclude_spells and k.lower() in SPELL_CARDS:
+                continue
+            if k not in counts: counts[k] = [0, 0]
+            counts[k][0] += 1
+            if win: counts[k][1] += 1
+    if not counts: return pd.DataFrame()
     data = [{"Karte": k, "Gespielt": v[0], "Winrate (%)": round((v[1]/v[0]*100),1)} for k, v in counts.items()]
     res_df = pd.DataFrame(data)
-    top_use = res_df.sort_values("Gespielt", ascending=False).head(5)
-    return top_use
+    return res_df.sort_values("Gespielt", ascending=False).head(top_n)
 
 def get_h2h_stats_data(df):
     pairs = list(itertools.combinations(TAGS.keys(), 2))
@@ -890,6 +901,12 @@ with tab_spieler_loc:
     st.header("Spieler-Übersicht")
     st.markdown("<div class='subtle-note'>Account-Daten, persönliche Serie und lokale Crew-Bilanz je Spieler.</div>", unsafe_allow_html=True)
     has_comp = (not df_comp.empty) and ('Spieler1' in df_comp.columns)
+
+    cc1, cc2 = st.columns([1.4, 1])
+    card_choice = cc1.radio("Meistgespielte Karten:", ["Top 5", "Top 20"], horizontal=True, key="card_count")
+    top_n_cards = 20 if "20" in card_choice else 5
+    no_spells = cc2.toggle("Ohne Spells", key="no_spells", help="Blendet Zauber-Karten (Pfeile, Feuerball, Zap, Gift …) aus.")
+
     cols = st.columns(3)
     for idx, (name, tag) in enumerate(TAGS.items()):
         with cols[idx % 3]:
@@ -961,7 +978,7 @@ with tab_spieler_loc:
                 blocks.append(f"<div class='p-sec'>Letzte 5 (lokal)</div>{hist}")
 
             # Meistgespielte Karten (lokal) als Mini-Balken
-            top_u = calculate_card_stats(name, df_comp)
+            top_u = calculate_card_stats(name, df_comp, top_n=top_n_cards, exclude_spells=no_spells)
             if not top_u.empty:
                 maxg = top_u['Gespielt'].max()
                 cb = ""
