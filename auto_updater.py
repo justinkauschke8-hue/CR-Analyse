@@ -27,7 +27,7 @@ GLOBAL_HEADER = ["ID_Unique", "Time_ID", "Spieler", "Opponent", "Score_Me", "Sco
                  "PrincessHP", "KingHP"]
 PROFILE_HEADER = ["Spieler", "Trophies", "Max_Trophies", "Matches", "Wins", "Losses", "Three_Crowns",
                   "ExpLevel", "WinStreak", "LeagueTrophies", "BestSeasonTrophies"]
-API_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjM0MGI5OTVhLTg2MmEtNGUwOC1hNWM2LThhNzgyYmE5ZjI5NiIsImlhdCI6MTc4MDc0MjU0NSwic3ViIjoiZGV2ZWxvcGVyL2MyYjczNjYyLWE2YjYtNzdkMC00N2I4LTM5YjE0MWYyNzcxOCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyI5Mi4yMDguMjEuMjE4Il0sInR5cGUiOiJjbGllbnQifV19.W748jBxxPdxUGrrg95fH43GTX2oRGvDfYEVjTLJLPEPbepi_J7AjdwGOvlkq4BnAqcmK6RdJrNVKA4iK1VwePA"
+API_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjhkNjRmMmViLWE4YzgtNGNhOS04MjY1LTk1NDU1NzU0NGU2NyIsImlhdCI6MTc4MDk1MTI0NSwic3ViIjoiZGV2ZWxvcGVyL2MyYjczNjYyLWE2YjYtNzdkMC00N2I4LTM5YjE0MWYyNzcxOCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyI0NS43OS4yMTguNzkiLCI5Mi4yMDguMjEuMjE4Il0sInR5cGUiOiJjbGllbnQifV19.jttp1dXuI5uzd7DUCb4rGSRrBhTegQwqFF0jzuTNaI3WH-B_5P2Xlc_8zx0Pts_yabI-tsGnEvCVn2xL2SPFkQ"
 
 # --- LAUFZEIT-KONFIG (für Cloud / GitHub Actions via Umgebungsvariablen) ---
 # CR_API_KEY: optional neuer Key (z. B. mit RoyaleAPI-Proxy-IP erlaubt)
