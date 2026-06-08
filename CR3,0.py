@@ -249,6 +249,29 @@ def get_api_data(endpoint, tag):
     except Exception as e:
         return {"_error": True, "_status": 0, "_msg": str(e)}
 
+def render_deck_center(tag):
+    """Aktuelles Deck (8 Karten als Bilder via st.image), Ø-Elixier und Lieblingskarte – live aus dem Profil."""
+    prof = get_api_data("", tag)
+    if not (isinstance(prof, dict) and not prof.get("_error") and prof.get("currentDeck")):
+        st.info("Aktuelles Deck konnte nicht aus der API geladen werden.")
+        return
+    deck = prof["currentDeck"]
+    avg_elixir = sum(c.get("elixirCost", 0) for c in deck) / len(deck) if deck else 0
+    fav = prof.get("currentFavouriteCard") or {}
+    st.markdown(
+        f"<div class='subtle-note'>Ø Elixier <b style='color:var(--text)'>{avg_elixir:.1f}</b> &middot; "
+        f"Lieblingskarte: <b style='color:var(--text)'>{fav.get('name','–')}</b></div>", unsafe_allow_html=True)
+    cols = st.columns(len(deck) if deck else 1)
+    for i, c in enumerate(deck):
+        with cols[i]:
+            icon = (c.get("iconUrls") or {}).get("medium", "")
+            if icon:
+                st.image(icon, use_container_width=True)
+            st.markdown(
+                f"<div style='text-align:center; font-size:0.72rem; color:var(--text); line-height:1.2; margin-top:-4px;'>{c.get('name','')}</div>"
+                f"<div style='text-align:center; font-size:0.66rem; color:var(--muted);'>{c.get('elixirCost','')} Elixier &middot; L{c.get('level','')}</div>",
+                unsafe_allow_html=True)
+
 # --- AUTO-SCANNER (Google Sheets Sync) ---
 def scan_for_battles():
     df_comp = get_df_from_sheet(ws_comp)
@@ -961,27 +984,7 @@ with tab_spieler_glob:
 
     # --- Deck-Center (live aus dem Profil) ---
     st.subheader("Aktuelles Deck")
-    deck_prof = get_api_data("", TAGS[selected_p])
-    if isinstance(deck_prof, dict) and not deck_prof.get("_error") and deck_prof.get("currentDeck"):
-        deck = deck_prof["currentDeck"]
-        avg_elixir = sum(c.get("elixirCost", 0) for c in deck) / len(deck) if deck else 0
-        fav = deck_prof.get("currentFavouriteCard") or {}
-        fav_icon = (fav.get("iconUrls") or {}).get("medium", "")
-        fav_html = (f"<img src='{fav_icon}' style='height:22px;vertical-align:middle;margin:0 5px;'/>{fav.get('name','')}"
-                    if fav_icon else fav.get("name", "–"))
-        st.markdown(
-            f"<div class='subtle-note'>Ø Elixier <b style='color:var(--text)'>{avg_elixir:.1f}</b> &nbsp;&middot;&nbsp; "
-            f"Lieblingskarte: <span style='color:var(--text)'>{fav_html}</span></div>", unsafe_allow_html=True)
-        tiles = ""
-        for c in deck:
-            icon = (c.get("iconUrls") or {}).get("medium", "")
-            tiles += (f"<div class='deck-card'><div class='dc-elixir'>{c.get('elixirCost','')}</div>"
-                      f"<img src='{icon}' loading='lazy'/>"
-                      f"<div class='dc-name'>{c.get('name','')}</div>"
-                      f"<div class='dc-lvl'>Lvl {c.get('level','')}</div></div>")
-        st.markdown(f"<div class='deck-grid'>{tiles}</div>", unsafe_allow_html=True)
-    else:
-        st.info("Aktuelles Deck konnte nicht aus der API geladen werden.")
+    render_deck_center(TAGS[selected_p])
     st.markdown("---")
 
     if df_global.empty:
@@ -1502,6 +1505,10 @@ with tab_flexus:
             <p style='margin:0; color: #8A93A6; font-size: 0.9rem;'>Zentrale Dateneinsicht & Live-Prognosen | Global Account</p>
         </div>
     """, unsafe_allow_html=True)
+
+    st.subheader("Aktuelles Deck")
+    render_deck_center(SOLO_TAGS[f_name])
+    st.markdown("---")
 
     # Robust gegen leere/spaltenlose Sheets: get_df_from_sheet liefert bei 0 Datensätzen
     # einen leeren DataFrame OHNE Spalten -> df['Spieler'] würde sonst KeyError werfen.
