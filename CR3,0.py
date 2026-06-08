@@ -127,6 +127,17 @@ h2{ font-size:1.45rem; } h3{ font-size:1.12rem; }
 .hbar-fill{ height:100%; border-radius:7px; opacity:0.9; }
 .hbar-val{ width:64px; text-align:right; font-size:0.85rem; font-weight:600; color:var(--text); font-variant-numeric:tabular-nums; }
 
+/* Scoreboard – Spielstände der Begegnungen */
+.scoreboard{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:4px 10px; box-shadow:0 4px 16px rgba(0,0,0,0.25); margin-bottom:18px; }
+.sb-row{ display:flex; align-items:center; padding:12px 8px; border-bottom:1px solid rgba(38,46,61,0.5); }
+.sb-row:last-child{ border-bottom:none; }
+.sb-p{ flex:1; font-size:0.9rem; color:var(--muted); }
+.sb-p.l{ text-align:right; } .sb-p.r{ text-align:left; }
+.sb-p.win{ color:var(--text); font-weight:600; }
+.sb-score{ width:120px; text-align:center; font-weight:700; font-size:1.05rem; font-variant-numeric:tabular-nums; letter-spacing:1px; color:var(--text); }
+.sb-score .dash{ color:var(--muted); font-weight:400; margin:0 9px; }
+.sb-done{ display:block; font-size:0.62rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.08em; margin-top:3px; }
+
 /* dezente Notiz */
 .subtle-note{ color:var(--muted); font-size:0.82rem; margin:-6px 0 16px; }
 
@@ -680,7 +691,7 @@ tab_dbl, tab_spieler_loc, tab_spieler_glob, tab_trends, tab_sessions, tab_progno
 # --- TAB 1: 1v1 LIGA ---
 with tab_dbl:
     st.header("Offizielles 1v1 Leaderboard")
-    st.markdown("<div class='subtle-note'>Race to 100 · Winner stays · alle gewerteten internen Matches, sortiert nach Winrate und Net-Wins.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='subtle-note'>Winner stays · Duell gewonnen bei 100 Siegen gegen eine Person · alles gewonnen bei 200 (Race to 200).</div>", unsafe_allow_html=True)
     if not df_comp.empty:
         lb_data = []
         for p in TAGS.keys():
@@ -704,9 +715,29 @@ with tab_dbl:
 <div class='kpi-grid'>
   <div class='kpi'><div class='label'>Aktuelle Winstreak</div><div class='value'>{curr_streak['count']}&times;</div><div class='sub up'>&#9650; {curr_streak['player']}</div></div>
   <div class='kpi'><div class='label'>All-Time Rekord</div><div class='value'>{at_streak['count']}&times;</div><div class='sub'>{at_streak['player']}</div></div>
-  <div class='kpi'><div class='label'>F&uuml;hrend &middot; Race to 100</div><div class='value'>{int(race_leader['Siege'])} <span style='font-size:0.9rem;color:var(--muted)'>/ 100</span></div><div class='sub up'>&#9650; {race_leader['Spieler']}</div></div>
+  <div class='kpi'><div class='label'>F&uuml;hrend &middot; Race to 200</div><div class='value'>{int(race_leader['Siege'])} <span style='font-size:0.9rem;color:var(--muted)'>/ 200</span></div><div class='sub up'>&#9650; {race_leader['Spieler']}</div></div>
 </div>
 """, unsafe_allow_html=True)
+
+            # --- Scoreboard: Spielstände der Begegnungen ---
+            if not h2h_df.empty:
+                st.markdown("<h3 style='font-size:1.05rem; margin:4px 0 10px;'>Spielstände der Begegnungen</h3>", unsafe_allow_html=True)
+                sb = ""
+                for _, r in h2h_df.iterrows():
+                    parts = str(r['Matchup']).split(" vs ")
+                    p1 = parts[0]; p2 = parts[1] if len(parts) > 1 else ""
+                    sc = str(r['Score']).split(":")
+                    try:
+                        w1 = int(sc[0].strip()); w2 = int(sc[1].strip())
+                    except Exception:
+                        w1 = w2 = 0
+                    cls1 = "sb-p l win" if w1 >= w2 else "sb-p l"
+                    cls2 = "sb-p r win" if w2 > w1 else "sb-p r"
+                    done = "<span class='sb-done'>Duell entschieden</span>" if (w1 >= 100 or w2 >= 100) else ""
+                    sb += (f"<div class='sb-row'><div class='{cls1}'>{p1}</div>"
+                           f"<div class='sb-score'>{w1}<span class='dash'>&ndash;</span>{w2}{done}</div>"
+                           f"<div class='{cls2}'>{p2}</div></div>")
+                st.markdown(f"<div class='scoreboard'>{sb}</div>", unsafe_allow_html=True)
 
             # --- Leaderboard als Custom-Tabelle ---
             rows = ""
@@ -757,13 +788,13 @@ with tab_dbl:
         if lb_data:
             c1, c2 = st.columns(2)
             with c1:
-                st.markdown("<h3 style='font-size:1.05rem; margin:0 0 12px;'>Race to 100 &middot; Gesamtsiege</h3>", unsafe_allow_html=True)
+                st.markdown("<h3 style='font-size:1.05rem; margin:0 0 12px;'>Race to 200 &middot; Gesamtsiege (alles gewonnen)</h3>", unsafe_allow_html=True)
                 bars = ""
                 for _, r in df_lb.sort_values('Siege', ascending=False).iterrows():
                     col = PLAYER_COLORS.get(r['Spieler'], "#5B8DEF")
                     bars += (f"<div class='hbar-row'><span class='hbar-name'>{r['Spieler']}</span>"
-                             f"<div class='hbar-track'><div class='hbar-fill' style='width:{min(100, int(r['Siege']))}%; background:{col}'></div></div>"
-                             f"<span class='hbar-val'>{int(r['Siege'])} / 100</span></div>")
+                             f"<div class='hbar-track'><div class='hbar-fill' style='width:{min(100, int(r['Siege'])/2):.0f}%; background:{col}'></div></div>"
+                             f"<span class='hbar-val'>{int(r['Siege'])} / 200</span></div>")
                 st.markdown(f"<div class='tbl-wrap' style='padding:16px 20px;'>{bars}</div>", unsafe_allow_html=True)
             with c2:
                 st.markdown("<h3 style='font-size:1.05rem; margin:0 0 12px;'>Winrate</h3>", unsafe_allow_html=True)
