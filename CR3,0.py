@@ -841,13 +841,22 @@ with tab_spieler_loc:
             # Account-Stats (global)
             if (not df_prof.empty) and ('Spieler' in df_prof.columns) and (name in df_prof['Spieler'].values):
                 pdat = df_prof[df_prof['Spieler'] == name].iloc[0]
-                m_ = int(pdat['Matches']); w_ = int(pdat['Wins'])
+                def _si(v):
+                    try: return int(v)
+                    except Exception: return 0
+                m_ = _si(pdat['Matches']); w_ = _si(pdat['Wins']); l_ = _si(pdat['Losses'])
+                tc_ = _si(pdat['Three_Crowns']) if 'Three_Crowns' in pdat.index else 0
                 wr_g = (w_ / m_ * 100) if m_ > 0 else 0
-                m_fmt = f"{m_:,}".replace(",", ".")
+                tc_pct = (tc_ / w_ * 100) if w_ > 0 else 0
+                fmt = lambda n: f"{n:,}".replace(",", ".")
                 blocks.append(
-                    f"<div class='p-stat'><span class='k'>Trophäen</span><span class='v'>{int(pdat['Trophies'])} "
-                    f"<span style='color:var(--muted);font-weight:400'>/ {int(pdat['Max_Trophies'])}</span></span></div>"
-                    f"<div class='p-stat'><span class='k'>Matches (global)</span><span class='v'>{m_fmt}</span></div>"
+                    f"<div class='p-stat'><span class='k'>Trophäen</span><span class='v'>{_si(pdat['Trophies'])} "
+                    f"<span style='color:var(--muted);font-weight:400'>/ {_si(pdat['Max_Trophies'])}</span></span></div>"
+                    f"<div class='p-stat'><span class='k'>Matches (global)</span><span class='v'>{fmt(m_)}</span></div>"
+                    f"<div class='p-stat'><span class='k'>Siege</span><span class='v'>{fmt(w_)}</span></div>"
+                    f"<div class='p-stat'><span class='k'>Niederlagen</span><span class='v'>{fmt(l_)}</span></div>"
+                    f"<div class='p-stat'><span class='k'>3-Kronen-Siege</span><span class='v'>{fmt(tc_)} "
+                    f"<span style='color:var(--muted);font-weight:400'>({tc_pct:.0f}% der Siege)</span></span></div>"
                     f"<div class='p-stat'><span class='k'>Globale Winrate</span><span class='v'>{wr_g:.1f}%</span></div>")
             else:
                 blocks.append("<div class='p-sub'>Keine Account-Daten im Archiv.</div>")
