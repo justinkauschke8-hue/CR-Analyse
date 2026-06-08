@@ -3,6 +3,7 @@ import requests
 import gspread
 from datetime import datetime
 import os
+import sys
 import pandas as pd
 import json
 from google.oauth2.service_account import Credentials
@@ -27,13 +28,26 @@ PROFILE_HEADER = ["Spieler", "Trophies", "Max_Trophies", "Matches", "Wins", "Los
                   "ExpLevel", "WinStreak", "LeagueTrophies", "BestSeasonTrophies"]
 API_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjM0MGI5OTVhLTg2MmEtNGUwOC1hNWM2LThhNzgyYmE5ZjI5NiIsImlhdCI6MTc4MDc0MjU0NSwic3ViIjoiZGV2ZWxvcGVyL2MyYjczNjYyLWE2YjYtNzdkMC00N2I4LTM5YjE0MWYyNzcxOCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyI5Mi4yMDguMjEuMjE4Il0sInR5cGUiOiJjbGllbnQifV19.W748jBxxPdxUGrrg95fH43GTX2oRGvDfYEVjTLJLPEPbepi_J7AjdwGOvlkq4BnAqcmK6RdJrNVKA4iK1VwePA"
 
+# --- LAUFZEIT-KONFIG (für Cloud / GitHub Actions via Umgebungsvariablen) ---
+# CR_API_KEY: optional neuer Key (z. B. mit RoyaleAPI-Proxy-IP erlaubt)
+# CR_API_BASE: z. B. https://proxy.royaleapi.dev/v1 (umgeht die IP-Sperre)
+# GOOGLE_CREDENTIALS: kompletter Service-Account-JSON als String (GitHub Secret)
+# RUN_ONCE=1: ein einziger Scan, dann beenden (für zeitgesteuerte Jobs)
+API_KEY = os.environ.get("CR_API_KEY") or API_KEY
+API_BASE = (os.environ.get("CR_API_BASE") or "https://api.clashroyale.com/v1").rstrip("/")
+GOOGLE_CREDS_JSON = os.environ.get("GOOGLE_CREDENTIALS") or None
+RUN_ONCE = os.environ.get("RUN_ONCE") == "1" or "--once" in sys.argv
+
 
 aktueller_ordner = os.path.dirname(os.path.abspath(__file__))
 schluessel_pfad = os.path.join(aktueller_ordner, 'credentials.json.json')
 
 print("Verbinde mit Google Sheets...")
 try:
-    gc = gspread.service_account(filename=schluessel_pfad)
+    if GOOGLE_CREDS_JSON:
+        gc = gspread.service_account_from_dict(json.loads(GOOGLE_CREDS_JSON))
+    else:
+        gc = gspread.service_account(filename=schluessel_pfad)
     sheet = gc.open_by_url(SHEET_URL)
     ws_comp = sheet.worksheet("Karten_Data")
     ws_fun = sheet.worksheet("Fun_Data")
@@ -50,10 +64,10 @@ try:
     print("✅ Verbindung erfolgreich!")
 except Exception as e:
     print(f"❌ Fehler! Genaue Fehlermeldung: {e}")
-    exit()
+    sys.exit(1)
 
 def get_api_data(endpoint, tag):
-    url = f"https://api.clashroyale.com/v1/players/%23{tag}/{endpoint}" if endpoint else f"https://api.clashroyale.com/v1/players/%23{tag}"
+    url = f"{API_BASE}/players/%23{tag}/{endpoint}" if endpoint else f"{API_BASE}/players/%23{tag}"
     headers = {"Authorization": f"Bearer {API_KEY}"}
     try:
         res = requests.get(url, headers=headers, timeout=5)
@@ -154,14 +168,22 @@ def scan_for_battles():
     
     return len(new_comp_rows), len(new_global_rows)
 
-print("Starte Endlos-Schleife (alle 60 Sekunden)...\n")
-
-while True:
+if RUN_ONCE:
     now = datetime.now().strftime('%H:%M:%S')
     try:
         c, g = scan_for_battles()
-        print(f"[{now}] Update erfolgreich! {c} 1v1 / {g} Globale Spiele neu erfasst.")
+        print(f"[{now}] Einmal-Lauf fertig: {c} 1v1 / {g} Globale Spiele neu erfasst.")
     except Exception as e:
         print(f"[{now}] Fehler beim Scan: {e}")
-        
-    time.sleep(10)
+        raise
+else:
+    print("Starte Endlos-Schleife (alle 10 Sekunden)...\n")
+    while True:
+        now = datetime.now().strftime('%H:%M:%S')
+        try:
+            c, g = scan_for_battles()
+            print(f"[{now}] Update erfolgreich! {c} 1v1 / {g} Globale Spiele neu erfasst.")
+        except Exception as e:
+            print(f"[{now}] Fehler beim Scan: {e}")
+
+        time.sleep(10)

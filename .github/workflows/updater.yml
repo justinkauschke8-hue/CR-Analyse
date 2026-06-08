@@ -1,0 +1,44 @@
+name: CR Auto-Updater
+
+# Holt regelmäßig die neuen Spiele aus der Clash-Royale-API und schreibt sie
+# ins Google Sheet – ganz ohne laufenden Laptop.
+#
+# WICHTIG: Diese Cron-Frequenz bestimmt deinen Actions-Minutenverbrauch.
+#   alle 15 Min  -> ~2880 Läufe/Monat   (knapp über dem GitHub-Free-Kontingent
+#                   von 2000 Min/Monat für PRIVATE Repos)
+#   alle 30 Min  -> ~1440 Läufe/Monat   (sicher kostenlos auf privatem Repo)
+# Bei öffentlichem Repo sind Actions-Minuten unbegrenzt frei.
+# Zum Ändern einfach die Cron-Zeile anpassen (z. B. "*/30 * * * *").
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}        # erlaubt manuelles Starten im Actions-Tab
+
+concurrency:
+  group: cr-updater
+  cancel-in-progress: false    # nie einen laufenden Schreibvorgang abbrechen
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Abhängigkeiten installieren
+        run: pip install --quiet requests gspread pandas
+
+      - name: Updater einmal ausführen
+        env:
+          RUN_ONCE: "1"
+          CR_API_BASE: "https://proxy.royaleapi.dev/v1"
+          CR_API_KEY: ${{ secrets.CR_API_KEY }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: python "auto_updater.py"
