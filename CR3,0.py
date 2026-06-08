@@ -160,6 +160,15 @@ h2{ font-size:1.45rem; } h3{ font-size:1.12rem; }
 .p-card-bar .cf{ display:block; height:100%; background:#5A6678; border-radius:5px; }
 .p-card-bar .cv{ width:42px; text-align:right; color:var(--muted); font-variant-numeric:tabular-nums; }
 
+/* Daten-Konzept-Seite */
+.cc-card{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:18px 20px; box-shadow:0 4px 16px rgba(0,0,0,0.25); height:100%; }
+.cc-badge{ display:inline-block; font-size:0.62rem; font-weight:700; text-transform:uppercase; letter-spacing:0.07em; padding:3px 10px; border-radius:999px; background:var(--surface-2); color:var(--muted); margin-bottom:11px; }
+.cc-title{ font-size:1.05rem; font-weight:700; color:var(--text); margin-bottom:7px; letter-spacing:-0.01em; }
+.cc-desc{ font-size:0.86rem; color:var(--muted); line-height:1.55; margin-bottom:12px; }
+.cc-lbl{ color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; font-size:0.64rem; font-weight:600; }
+.cc-src{ font-family:'SF Mono',Menlo,monospace; font-size:0.76rem; color:#9AB3E0; word-break:break-word; }
+.cc-val{ color:var(--text); font-size:0.84rem; }
+
 /* dezente Notiz */
 .subtle-note{ color:var(--muted); font-size:0.82rem; margin:-6px 0 16px; }
 
@@ -706,8 +715,8 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # --- NAVIGATION ---
-tab_dbl, tab_spieler_loc, tab_spieler_glob, tab_trends, tab_sessions, tab_prognose, tab_mc, tab_flexus = st.tabs([
-    "1v1 Liga", "Spieler (Lokal)", "Spieler-Analyse", "Aktivität & Trends", "Sessions", "Prognose", "Monte Carlo", "Flexus (Solo)"
+tab_dbl, tab_spieler_loc, tab_spieler_glob, tab_trends, tab_sessions, tab_prognose, tab_mc, tab_flexus, tab_konzept = st.tabs([
+    "1v1 Liga", "Spieler (Lokal)", "Spieler-Analyse", "Aktivität & Trends", "Sessions", "Prognose", "Monte Carlo", "Flexus (Solo)", "Daten-Konzept"
 ])
 
 # --- TAB 1: 1v1 LIGA ---
@@ -1485,3 +1494,64 @@ with tab_flexus:
                 st.plotly_chart(fig_trend, use_container_width=True)
             else:
                 st.info("Sammle mehr Datenpunkte (Lass den Bot ein paarmal laufen), um die Kurve zu zeichnen.")
+
+# --- TAB 9: DATEN-KONZEPT (Roadmap zur vollen API-Nutzung) ---
+with tab_konzept:
+    st.header("Daten-Konzept · Volle Nutzung der Clash-Royale-API")
+    st.markdown("<div class='subtle-note'>Roadmap, wie sich die App mit den vorhandenen API-Daten ausbauen lässt. Noch nicht aktiv – als Vision und Planung gedacht.</div>", unsafe_allow_html=True)
+    st.info("Voraussetzung für die meisten Punkte: Der Bot (auto_updater.py) muss zusätzliche Battlelog-Felder mit archivieren – z. B. Trophäen-Änderung, Gegner-Decks, vergeudetes Elixier und Turm-HP. Das Profil liefert vieles direkt, das Battlelog braucht Archivierung.")
+
+    def cc(badge, title, desc, src, gives):
+        return (
+            f"<div class='cc-card'><span class='cc-badge'>{badge}</span>"
+            f"<div class='cc-title'>{title}</div>"
+            f"<div class='cc-desc'>{desc}</div>"
+            f"<div class='cc-lbl'>Datenquelle</div><div class='cc-src'>{src}</div>"
+            f"<div class='cc-lbl' style='margin-top:9px;'>Ermöglicht</div><div class='cc-val'>{gives}</div>"
+            "</div>"
+        )
+
+    st.subheader("Phase 1 · Schnell umsetzbar, hoher Nutzen")
+    a, b = st.columns(2)
+    a.markdown(cc("Phase 1", "Echte Trophäen-Reise",
+        "Eine echte Verlaufskurve des Trophäenstands je Spieler – löst das Kernproblem, dass Profile_Data keine Historie speichert.",
+        "battlelog: startingTrophies + trophyChange · profil: leagueStatistics",
+        "Trophäen-Kurve über Zeit, Saison-Hoch & -Tief, ehrliche Ladder-Form."), unsafe_allow_html=True)
+    b.markdown(cc("Phase 1", "Serie & Liga-Saison live",
+        "Aktuelle Sieg/Niederlagen-Serie und Saisonwerte direkt aus dem Profil – ohne aufwändige Archiv-Berechnung.",
+        "profil: currentWinLoseStreak · leagueStatistics (current/previous/best)",
+        "Live-Serie je Spieler, aktuelle vs. beste Saison, Trend."), unsafe_allow_html=True)
+
+    st.subheader("Phase 2 · Deck-Intelligenz & Effizienz")
+    c, d = st.columns(2)
+    c.markdown(cc("Phase 2", "Deck-Center",
+        "Das aktuelle Deck jedes Spielers mit Kartenbildern, Durchschnitts-Elixier und Lieblingskarte.",
+        "profil: currentDeck, currentFavouriteCard, cards (+ iconUrls)",
+        "Deck-Galerie mit Bildern, Ø-Elixir, Kartenlevel, Lieblingskarte."), unsafe_allow_html=True)
+    d.markdown(cc("Phase 2", "Match-Effizienz",
+        "Tiefe Leistungskennzahlen pro Spiel statt nur Sieg/Niederlage.",
+        "battlelog: elixirLeaked, princessTowersHitPoints, kingTowerHitPoints, crowns",
+        "Vergeudetes Elixier, Turm-Defensive, Clutch- & Clean-Sheet-Quote."), unsafe_allow_html=True)
+
+    st.subheader("Phase 3 · Kontext & Vergleich")
+    e, f = st.columns(2)
+    e.markdown(cc("Phase 3", "Karten-Meta (Kryptonit global)",
+        "Die Tabelle 'Karten, gegen die man verliert' endlich global – nicht nur in Crew-Spielen. Löst den Platzhalter auf Seite 3.",
+        "battlelog: opponent[].cards (muss archiviert werden)",
+        "Globale Angstgegner-Karten je Spieler, Meta-Trends."), unsafe_allow_html=True)
+    f.markdown(cc("Phase 3", "Ranglisten & globaler Rang",
+        "Einordnung der Spieler im weltweiten/landesweiten Vergleich.",
+        "/locations/{id}/rankings/players · battlelog: globalRank · Path-of-Legend-Ergebnisse",
+        "Globale/nationale Platzierung, Path-of-Legend-Saisonrang."), unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.subheader("Weitere Bausteine (optional)")
+    st.markdown(
+        "<div class='cc-card'>"
+        "<div class='p-stat'><span class='k'>Modus-Filter</span><span class='v'>Stats getrennt nach Ladder · Path of Legend · Challenge · Turnier <span class='cc-src'>(type, gameMode)</span></span></div>"
+        "<div class='p-stat'><span class='k'>Clan &amp; Krieg</span><span class='v'>Spenden, Clankrieg-Siege, Rolle <span class='cc-src'>(clan, warDayWins, donations · /clans/{tag}/currentwar)</span></span></div>"
+        "<div class='p-stat'><span class='k'>Truhen-Zyklus</span><span class='v'>Kommende Truhen je Spieler <span class='cc-src'>(/players/{tag}/upcomingchests)</span></span></div>"
+        "<div class='p-stat'><span class='k'>Meilensteine</span><span class='v'>Abzeichen &amp; Erfolge mit Fortschritt <span class='cc-src'>(badges, achievements)</span></span></div>"
+        "</div>", unsafe_allow_html=True)
+
+    st.markdown("<div class='subtle-note' style='margin-top:16px;'>Empfohlene Reihenfolge: Phase 1 zuerst (größter Mehrwert, kleinster Aufwand). Phasen 2–3 bauen darauf auf. Mehrere Punkte erfordern eine einmalige Erweiterung des Bots, damit die Felder ins Archiv wandern.</div>", unsafe_allow_html=True)
