@@ -739,11 +739,28 @@ with tab_spieler_glob:
                 nw_glob += 1 if gr['Score_Me'] > gr['Score_Opp'] else (-1 if gr['Score_Me'] < gr['Score_Opp'] else 0)
                 form_rows.append({"Spiel-Nr": gi, "Netto-Siege": nw_glob})
             if form_rows:
-                fig_form = px.line(pd.DataFrame(form_rows), x="Spiel-Nr", y="Netto-Siege", markers=True)
-                fig_form.add_hline(y=0, line_dash="dash", line_color="#555")
-                fig_form.update_traces(line_color="#5B8DEF", line_width=2.5, marker=dict(size=5))
+                xs = [r["Spiel-Nr"] for r in form_rows]
+                ys = [r["Netto-Siege"] for r in form_rows]
+                end_val = ys[-1]
+                if end_val > 0:   accent, fillc = "#22C55E", "rgba(34,197,94,0.16)"
+                elif end_val < 0: accent, fillc = "#F43F5E", "rgba(244,63,94,0.16)"
+                else:             accent, fillc = "#5B8DEF", "rgba(91,141,239,0.16)"
+                fig_form = go.Figure()
+                fig_form.add_trace(go.Scatter(
+                    x=xs, y=ys, mode="lines",
+                    line=dict(color=accent, width=3, shape="spline", smoothing=0.6),
+                    fill="tozeroy", fillcolor=fillc,
+                    hovertemplate="Spiel %{x} · %{y} Netto-Siege<extra></extra>"))
+                fig_form.add_trace(go.Scatter(
+                    x=[xs[-1]], y=[ys[-1]], mode="markers+text",
+                    marker=dict(size=12, color=accent, line=dict(color="#0B0E14", width=3)),
+                    text=[f"  {end_val:+d}"], textposition="middle right",
+                    textfont=dict(color=accent, size=14, family="Inter"), hoverinfo="skip"))
                 fig_form = style_fig(fig_form, height=300, legend=False)
-                fig_form.update_layout(xaxis_title="Spiel-Nr. (chronologisch)", yaxis_title="Kumulierte Netto-Siege")
+                fig_form.add_hline(y=0, line_dash="dot", line_color="#2A3343", line_width=1)
+                fig_form.update_xaxes(visible=False, showgrid=False)
+                fig_form.update_yaxes(title_text="", showgrid=True, gridcolor="#1A2230", zeroline=False)
+                fig_form.update_layout(margin=dict(t=14, b=10, l=10, r=46), hovermode="x unified")
                 st.plotly_chart(fig_form, use_container_width=True)
             st.markdown("---")
 
