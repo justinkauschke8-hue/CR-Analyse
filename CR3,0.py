@@ -203,19 +203,42 @@ def scan_for_battles():
 # --- EINHEITLICHES DIAGRAMM-DESIGN ---
 CHART_COLORWAY = ["#5B8DEF", "#22C55E", "#F5B544", "#F43F5E", "#7C5CFF"]
 
-def style_fig(fig, height=300, legend=True):
-    """Einheitliches, transparentes Dark-Theme für alle Plotly-Diagramme."""
+def style_fig(fig, height=300, legend=True, smooth=True):
+    """Einheitliches, elegantes Dark-Theme fuer ALLE Plotly-Diagramme:
+    transparenter Hintergrund, Inter-Font, dezente Achsen, weiche Spline-Linien,
+    randlose Balken mit abgerundeten Ecken, saubere Donut-Trenner und gestylter Hover."""
     fig.update_layout(
         height=height,
-        font=dict(family="Inter, sans-serif", color="#E6EAF1"),
+        font=dict(family="Inter, sans-serif", color="#E6EAF1", size=12),
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        margin=dict(t=34, b=10, l=10, r=10),
+        margin=dict(t=34, b=10, l=10, r=14),
         showlegend=legend,
         colorway=CHART_COLORWAY,
-        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0,
+                    bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
+        hoverlabel=dict(bgcolor="#141A23", bordercolor="#262E3D",
+                        font=dict(family="Inter, sans-serif", color="#E6EAF1", size=12)),
     )
-    fig.update_xaxes(gridcolor="#1F2735", zerolinecolor="#1F2735", linecolor="#262E3D")
-    fig.update_yaxes(gridcolor="#1F2735", zerolinecolor="#1F2735", linecolor="#262E3D")
+    fig.update_xaxes(showgrid=False, zeroline=False, linecolor="#262E3D", ticks="")
+    fig.update_yaxes(showgrid=True, gridcolor="#1A2230", zeroline=True,
+                     zerolinecolor="#2A3343", zerolinewidth=1, linecolor="rgba(0,0,0,0)", ticks="")
+    for tr in fig.data:
+        t = getattr(tr, "type", None)
+        if t == "scatter":
+            if smooth and "lines" in (tr.mode or ""):
+                tr.line.shape = "spline"
+                tr.line.smoothing = 0.6
+                if not tr.line.width or tr.line.width < 2.5:
+                    tr.line.width = 2.5
+        elif t == "bar":
+            if tr.marker.line is not None:
+                tr.marker.line.width = 0
+        elif t == "pie":
+            tr.marker.line = dict(color="#0B0E14", width=2)
+    try:
+        fig.update_layout(barcornerradius=6)
+    except Exception:
+        pass
     return fig
 
 # --- HELFER FUNKTIONEN ---
@@ -830,7 +853,7 @@ with tab_spieler_glob:
                 st.markdown("**1. Historische Formkurve**")
                 st.markdown("<div style='color:#8A93A6; font-size:12px; margin-top:-10px; margin-bottom:5px;'>Gesamte Siegquote im Archiv. Über 50% = Positiv.</div>", unsafe_allow_html=True)
                 fig_wr = go.Figure(go.Indicator(mode="gauge+number", value=wr_recent, number={'suffix': "%"}, gauge={'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "#444"}, 'bar': {'color': "#5B8DEF"}, 'bgcolor': "#141A23", 'borderwidth': 0}))
-                fig_wr.update_layout(height=200, margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor="#0B0E14", font={'color': "#FFF"})
+                fig_wr = style_fig(fig_wr, height=200, legend=False)
                 st.plotly_chart(fig_wr, use_container_width=True)
             with c2:
                 st.markdown("**2 & 3. Offensiv vs Defensiv**")
@@ -850,7 +873,7 @@ with tab_spieler_glob:
                 st.markdown("<div style='color:#8A93A6; font-size:12px; margin-top:-10px; margin-bottom:5px;'>Prozentsatz der Spiele ohne Gegentor (Perfekte Defensive).</div>", unsafe_allow_html=True)
                 fig_cs = px.pie(names=['Clean Sheets', 'Gegentor'], values=[clean_sheet_pct, 100-clean_sheet_pct], hole=0.6, color_discrete_sequence=['#5B8DEF', '#262E3D'])
                 fig_cs.update_traces(textinfo='none')
-                fig_cs.update_layout(height=200, margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor="#0B0E14", font={'color': "#FFF"}, showlegend=False, annotations=[dict(text=f"{clean_sheet_pct:.0f}%", x=0.5, y=0.5, font_size=20, showarrow=False)])
+                fig_cs = style_fig(fig_cs, height=200, legend=False); fig_cs.update_layout(annotations=[dict(text=f"{clean_sheet_pct:.0f}%", x=0.5, y=0.5, font_size=22, showarrow=False)])
                 st.plotly_chart(fig_cs, use_container_width=True)
             with c5:
                 st.markdown("**5. Clutch-Rating (Nervenstärke)**")
@@ -860,7 +883,7 @@ with tab_spieler_glob:
                 else:
                     fig_cl = px.pie(names=['Knapper Sieg', 'Knappe Ndl'], values=[clutch_pct, 100-clutch_pct], hole=0.6, color_discrete_sequence=['#22C55E', '#262E3D'])
                     fig_cl.update_traces(textinfo='none')
-                    fig_cl.update_layout(height=200, margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor="#0B0E14", font={'color': "#FFF"}, showlegend=False, annotations=[dict(text=f"{clutch_pct:.0f}%", x=0.5, y=0.5, font_size=20, showarrow=False)])
+                    fig_cl = style_fig(fig_cl, height=200, legend=False); fig_cl.update_layout(annotations=[dict(text=f"{clutch_pct:.0f}%", x=0.5, y=0.5, font_size=22, showarrow=False)])
                     st.plotly_chart(fig_cl, use_container_width=True)
             with c6:
                 st.markdown("**6. Zerstörungs-Quote (3-Crowns)**")
@@ -870,7 +893,7 @@ with tab_spieler_glob:
                 else:
                     fig_3c = px.pie(names=['3 Kronen', 'Normaler Sieg'], values=[three_cr_pct, 100-three_cr_pct], hole=0.6, color_discrete_sequence=['#F5B544', '#262E3D'])
                     fig_3c.update_traces(textinfo='none')
-                    fig_3c.update_layout(height=200, margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor="#0B0E14", font={'color': "#FFF"}, showlegend=False, annotations=[dict(text=f"{three_cr_pct:.0f}%", x=0.5, y=0.5, font_size=20, showarrow=False)])
+                    fig_3c = style_fig(fig_3c, height=200, legend=False); fig_3c.update_layout(annotations=[dict(text=f"{three_cr_pct:.0f}%", x=0.5, y=0.5, font_size=22, showarrow=False)])
                     st.plotly_chart(fig_3c, use_container_width=True)
 
             with st.expander("Erklärungen und Formeln zu den Kennzahlen (Ausklappen)"):
@@ -1011,7 +1034,7 @@ with tab_sessions:
                         if pstats_df["Siege"].sum() > 0:
                             fig_share = px.pie(pstats_df[pstats_df["Siege"] > 0], names="Spieler", values="Siege", hole=0.45, title="Sieg-Verteilung der Session")
                             fig_share.update_traces(textposition='inside', textinfo='percent+label')
-                            fig_share.update_layout(height=300, paper_bgcolor="#0B0E14", font={'color': "#FFF"}, showlegend=False, margin=dict(t=40, b=0, l=0, r=0))
+                            fig_share = style_fig(fig_share, height=300, legend=False)
                             st.plotly_chart(fig_share, use_container_width=True)
                         else:
                             st.info("Keine entschiedenen Spiele für die Sieg-Verteilung.")
@@ -1115,14 +1138,14 @@ with tab_mc:
                 elif "Kuchen" in vis_choice:
                     fig_pie = px.pie(res_df, names='Spieler', values='Wahrscheinlichkeit', hole=0.4, color='Spieler')
                     fig_pie.update_traces(textposition='inside', textinfo='percent+label')
-                    fig_pie.update_layout(paper_bgcolor="#0B0E14", font={'color': "#FFF"}, showlegend=False)
+                    fig_pie = style_fig(fig_pie, height=320, legend=False)
                     st.plotly_chart(fig_pie, use_container_width=True)
                 elif "Tacho" in vis_choice:
                     st.markdown("<div style='color:#8A93A6; font-size:12px; margin-top:-10px; margin-bottom:10px;'>Exakte prozentuale Siegchance pro Spieler.</div>", unsafe_allow_html=True)
                     tacho_cols = st.columns(3)
                     for i, (index, row) in enumerate(res_df.iterrows()):
                         fig_gauge = go.Figure(go.Indicator(mode="gauge+number", value=row['Wahrscheinlichkeit'], number={'suffix': "%"}, title={'text': row['Spieler'], 'font': {'size': 16, 'color': '#FFF'}}, gauge={'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "#444"}, 'bar': {'color': "#5B8DEF"}, 'bgcolor': "#141A23", 'borderwidth': 0}))
-                        fig_gauge.update_layout(height=200, margin=dict(l=10, r=10, t=30, b=10), paper_bgcolor="#0B0E14", font={'color': "#FFF"})
+                        fig_gauge = style_fig(fig_gauge, height=200, legend=False)
                         tacho_cols[i % 3].plotly_chart(fig_gauge, use_container_width=True)
                 elif "Fakten" in vis_choice:
                     st.markdown("<div style='color:#8A93A6; font-size:12px; margin-top:-10px; margin-bottom:10px;'>Absolute Zahlen: Wie oft hat der Spieler das Turnier virtuell gewonnen?</div>", unsafe_allow_html=True)
