@@ -4,3 +4,4 @@ requests
 plotly
 gspread
 google-auth
+streamlit-autorefresh

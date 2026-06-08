@@ -10,6 +10,11 @@ import json
 import gspread
 import random
 from google.oauth2.service_account import Credentials
+try:
+    from streamlit_autorefresh import st_autorefresh
+    _HAS_AUTOREFRESH = True
+except Exception:
+    _HAS_AUTOREFRESH = False
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Clash Analyzer Pro", layout="wide", page_icon="📊")
@@ -636,6 +641,16 @@ st.sidebar.markdown("""
   <div><div class='t'>Clash Analyzer</div><div class='s'>Pro Edition</div></div>
 </div>
 """, unsafe_allow_html=True)
+st.sidebar.markdown("---")
+
+# --- LIVE-MODUS (automatische Aktualisierung) ---
+if _HAS_AUTOREFRESH:
+    live_on = st.sidebar.toggle("🔴 Live-Modus", value=True, help="App lädt automatisch neu und zeigt das neueste Spiel – ohne manuelles Aktualisieren.")
+    if live_on:
+        st_autorefresh(interval=30000, key="live_refresh")
+        st.sidebar.caption("Aktualisiert automatisch alle 30 Sek.")
+else:
+    st.sidebar.caption("Live-Modus inaktiv (Paket streamlit-autorefresh fehlt).")
 st.sidebar.markdown("---")
 
 # SCAN BUTTON
@@ -1629,10 +1644,37 @@ with tab_flexus:
                 st.info("Noch keine Kämpfe im Global-Archiv.")
 
         with col_right:
-            st.subheader("📈 Trophäen-Entwicklung")
-            if len(f_prof_all) > 1:
-                trend_filter = st.radio("Zeitraum auswählen:", ["All-Time", "Letzte 15 Messungen"], horizontal=True, label_visibility="collapsed")
-                plot_data = f_prof_all.tail(15) if "15" in trend_filter else f_prof_all
+            st.subheader("Trophäen-Reise (echt, Ladder)")
+            tro_f = f_glob.copy() if (not f_glob.empty and 'StartTrophies' in f_glob.columns) else pd.DataFrame()
+            if not tro_f.empty:
+                tro_f['Time'] = tro_f['Time_ID'].apply(parse_time)
+                tro_f['Tro'] = pd.to_numeric(tro_f['StartTrophies'], errors='coerce')
+                tro_f = tro_f.dropna(subset=['Time', 'Tro']).sort_values('Time')
+            if len(tro_f) >= 2:
+                ys_t = tro_f['Tro'].astype(int).tolist()
+                xs_t = list(range(1, len(ys_t) + 1))
+                times_t = tro_f['Time'].dt.strftime("%d.%m. %H:%M").tolist()
+                delta = ys_t[-1] - ys_t[0]
+                accent_t = "#22C55E" if delta > 0 else ("#F43F5E" if delta < 0 else "#5B8DEF")
+                fig_ftro = go.Figure()
+                fig_ftro.add_trace(go.Scatter(x=xs_t, y=ys_t, mode="lines", customdata=times_t,
+                    line=dict(color=accent_t, width=3, shape="spline", smoothing=0.5),
+                    fill="tozeroy", fillcolor="rgba(91,141,239,0.10)",
+                    hovertemplate="%{customdata} · %{y} Trophäen<extra></extra>"))
+                fig_ftro.add_trace(go.Scatter(x=[xs_t[-1]], y=[ys_t[-1]], mode="markers+text",
+                    marker=dict(size=12, color=accent_t, line=dict(color="#0B0E14", width=3)),
+                    text=[f"  {ys_t[-1]}"], textposition="middle right",
+                    textfont=dict(color=accent_t, size=14, family="Inter"), hoverinfo="skip"))
+                fig_ftro = style_fig(fig_ftro, height=350, legend=False)
+                fig_ftro.update_xaxes(visible=False, showgrid=False)
+                fig_ftro.update_yaxes(title_text="Trophäen", showgrid=True, gridcolor="#1A2230", zeroline=False)
+                lo, hi = min(ys_t), max(ys_t); pad = max(20, int((hi - lo) * 0.15))
+                fig_ftro.update_yaxes(range=[lo - pad, hi + pad])
+                fig_ftro.update_layout(margin=dict(t=14, b=10, l=10, r=52))
+                st.plotly_chart(fig_ftro, use_container_width=True)
+            elif len(f_prof_all) > 1:
+                st.caption("Noch wenige Ladder-Spiele erfasst – zeige solange die Profil-Messpunkte.")
+                plot_data = f_prof_all.tail(15)
                 fig_trend = px.line(plot_data, x=plot_data.index, y='Trophies', markers=True)
                 fig_trend = style_fig(fig_trend, height=350, legend=False)
                 fig_trend.update_xaxes(showgrid=False, visible=False)
@@ -1640,7 +1682,7 @@ with tab_flexus:
                 fig_trend.update_traces(line_color='#22C55E', line_width=3, marker=dict(size=8, color="#FFF", line=dict(width=2, color="#22C55E")))
                 st.plotly_chart(fig_trend, use_container_width=True)
             else:
-                st.info("Sammle mehr Datenpunkte (Lass den Bot ein paarmal laufen), um die Kurve zu zeichnen.")
+                st.info("Wird gesammelt: Sobald mindestens 2 Ladder-Spiele von Flexus erfasst sind, erscheint hier die echte Trophäenkurve.")
 
 # --- TAB 9: DATEN-KONZEPT (Roadmap zur vollen API-Nutzung) ---
 with tab_konzept:
