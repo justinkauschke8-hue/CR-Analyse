@@ -138,6 +138,28 @@ h2{ font-size:1.45rem; } h3{ font-size:1.12rem; }
 .sb-score .dash{ color:var(--muted); font-weight:400; margin:0 9px; }
 .sb-done{ display:block; font-size:0.62rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.08em; margin-top:3px; }
 
+/* Spieler-Profilkarten (Seite 2) */
+.pcard{ background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:18px 20px; box-shadow:0 4px 16px rgba(0,0,0,0.25); }
+.p-name{ font-size:1.2rem; font-weight:700; color:var(--text); letter-spacing:-0.01em; }
+.p-sub{ font-size:0.74rem; color:var(--muted); margin-top:2px; }
+.p-div{ height:1px; background:var(--border); margin:14px 0; }
+.p-sec{ font-size:0.7rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); font-weight:600; margin-bottom:9px; }
+.p-stat{ display:flex; justify-content:space-between; align-items:baseline; margin:6px 0; font-size:0.88rem; }
+.p-stat .k{ color:var(--muted); } .p-stat .v{ color:var(--text); font-weight:600; font-variant-numeric:tabular-nums; }
+.p-duel{ display:flex; align-items:center; gap:10px; margin:7px 0; font-size:0.87rem; }
+.p-duel .opp{ flex:1; color:var(--muted); }
+.p-duel .rec{ color:var(--muted); font-variant-numeric:tabular-nums; }
+.p-hist{ display:flex; align-items:center; gap:9px; margin:6px 0; font-size:0.85rem; }
+.p-res{ width:22px; height:22px; border-radius:6px; display:inline-grid; place-items:center; font-size:0.72rem; font-weight:700; flex:0 0 auto; }
+.p-res.w{ background:#E6EAF1; color:#0B0E14; }
+.p-res.l{ background:var(--surface-2); color:var(--muted); }
+.p-res.d{ background:transparent; border:1px solid var(--border); color:var(--muted); }
+.p-card-bar{ display:flex; align-items:center; gap:10px; margin:7px 0; font-size:0.84rem; }
+.p-card-bar .cn{ width:88px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.p-card-bar .ct{ flex:1; height:7px; background:var(--surface-2); border-radius:5px; overflow:hidden; }
+.p-card-bar .cf{ display:block; height:100%; background:#5A6678; border-radius:5px; }
+.p-card-bar .cv{ width:42px; text-align:right; color:var(--muted); font-variant-numeric:tabular-nums; }
+
 /* dezente Notiz */
 .subtle-note{ color:var(--muted); font-size:0.82rem; margin:-6px 0 16px; }
 
@@ -808,66 +830,84 @@ with tab_dbl:
 
 # --- TAB 2: SPIELER LOKAL ---
 with tab_spieler_loc:
-    st.header("Spieler Profile (Übersicht)")
-    st.markdown("<div style='color:#8A93A6; font-size:13px; margin-top:-10px; margin-bottom:20px;'>Globale Account-Daten (Trophäen) sowie lokale Crew-Performance.</div>", unsafe_allow_html=True)
+    st.header("Spieler-Übersicht")
+    st.markdown("<div class='subtle-note'>Account-Daten, persönliche Serie und lokale Crew-Bilanz je Spieler.</div>", unsafe_allow_html=True)
+    has_comp = (not df_comp.empty) and ('Spieler1' in df_comp.columns)
     cols = st.columns(3)
     for idx, (name, tag) in enumerate(TAGS.items()):
         with cols[idx % 3]:
-            st.subheader(f"{name}")
-            if not df_prof.empty and name in df_prof['Spieler'].values:
-                p_data = df_prof[df_prof['Spieler'] == name].iloc[0]
-                matches, wins, losses = p_data['Matches'], p_data['Wins'], p_data['Losses']
-                wr_global = (wins / matches * 100) if matches > 0 else 0
-                st.write(f"**Trophäen:** {p_data['Trophies']} (Max: {p_data['Max_Trophies']})")
-                st.write(f"**Matches:** {matches} | **Wins:** {wins} | **Losses:** {losses}")
-                st.write(f"**Global WR:** {wr_global:.1f}%")
+            blocks = [f"<div class='p-name'>{name}</div><div class='p-sub'>Crew-Mitglied</div>"]
 
-            # --- Persönliche Winstreak über ALLE Spiele (Global-Archiv), nicht nur die internen 1v1 ---
+            # Account-Stats (global)
+            if (not df_prof.empty) and ('Spieler' in df_prof.columns) and (name in df_prof['Spieler'].values):
+                pdat = df_prof[df_prof['Spieler'] == name].iloc[0]
+                m_ = int(pdat['Matches']); w_ = int(pdat['Wins'])
+                wr_g = (w_ / m_ * 100) if m_ > 0 else 0
+                m_fmt = f"{m_:,}".replace(",", ".")
+                blocks.append(
+                    f"<div class='p-stat'><span class='k'>Trophäen</span><span class='v'>{int(pdat['Trophies'])} "
+                    f"<span style='color:var(--muted);font-weight:400'>/ {int(pdat['Max_Trophies'])}</span></span></div>"
+                    f"<div class='p-stat'><span class='k'>Matches (global)</span><span class='v'>{m_fmt}</span></div>"
+                    f"<div class='p-stat'><span class='k'>Globale Winrate</span><span class='v'>{wr_g:.1f}%</span></div>")
+            else:
+                blocks.append("<div class='p-sub'>Keine Account-Daten im Archiv.</div>")
+
+            # Persönliche Serie (alle Spiele, global)
             cur_s, max_w_s, max_l_s, g_games = get_global_streaks(name, df_global)
             if g_games == 0:
-                st.markdown("""
-<div style='background-color:#141A23; border:1px solid #262E3D; border-left:4px solid #555; border-radius:6px; padding:10px 14px; margin-top:4px; margin-bottom:4px; font-family:sans-serif;'>
-  <div style='font-size:0.72rem; color:#8A93A6; text-transform:uppercase; letter-spacing:1px;'>Persönliche Winstreak · Alle Spiele</div>
-  <div style='font-size:0.9rem; color:#777; margin-top:4px;'>Noch keine globalen Daten im Archiv.</div>
-</div>
-""", unsafe_allow_html=True)
+                blocks.append("<div class='p-sec'>Persönliche Serie · Alle Spiele</div>"
+                              "<div class='p-sub'>Noch keine globalen Daten.</div>")
             else:
-                if cur_s > 0:
-                    s_color, s_icon, s_label = "#22C55E", "🔥", f"{cur_s} Siege in Folge"
-                elif cur_s < 0:
-                    s_color, s_icon, s_label = "#F43F5E", "🥶", f"{abs(cur_s)} Niederlagen in Folge"
-                else:
-                    s_color, s_icon, s_label = "#8A93A6", "➖", "Keine aktive Serie"
-                st.markdown(f"""
-<div style='background-color:#141A23; border:1px solid #262E3D; border-left:4px solid {s_color}; border-radius:6px; padding:10px 14px; margin-top:4px; margin-bottom:4px; font-family:sans-serif;'>
-  <div style='font-size:0.72rem; color:#8A93A6; text-transform:uppercase; letter-spacing:1px;'>Persönliche Winstreak · Alle Spiele</div>
-  <div style='font-size:1.25rem; font-weight:700; color:{s_color}; margin-top:2px;'>{s_icon} {s_label}</div>
-  <div style='font-size:0.72rem; color:#777; margin-top:4px;'>Längste Serie: <span style='color:#22C55E;'>+{max_w_s}</span> / <span style='color:#F43F5E;'>-{max_l_s}</span> · Basis: {g_games} Spiele</div>
-</div>
-""", unsafe_allow_html=True)
+                if cur_s > 0:   arr, lbl = "&#9650;", f"{cur_s} Siege in Folge"
+                elif cur_s < 0: arr, lbl = "&#9660;", f"{abs(cur_s)} Niederlagen in Folge"
+                else:           arr, lbl = "&middot;", "Keine aktive Serie"
+                blocks.append(
+                    "<div class='p-sec'>Persönliche Serie · Alle Spiele</div>"
+                    f"<div style='font-size:1.05rem;font-weight:700;color:var(--text);'>{arr}&nbsp; {lbl}</div>"
+                    f"<div class='p-sub' style='margin-top:4px;'>Längste +{max_w_s} / -{max_l_s} · Basis {g_games} Spiele</div>")
 
-            st.markdown("---")
-            p_df = df_comp[(df_comp['Spieler1'] == name) | (df_comp['Spieler2'] == name)].sort_values('ID') if (not df_comp.empty and 'Spieler1' in df_comp.columns) else pd.DataFrame()
+            # Direkte Duelle (lokal) – Bilanz gegen jeden Crew-Gegner
+            duel_rows = ""
+            for opp in TAGS.keys():
+                if opp == name:
+                    continue
+                if has_comp:
+                    m = df_comp[((df_comp['Spieler1'] == name) & (df_comp['Spieler2'] == opp)) |
+                                ((df_comp['Spieler1'] == opp) & (df_comp['Spieler2'] == name))]
+                    w = count_wins(name, m); lo = count_wins(opp, m)
+                else:
+                    w = lo = 0
+                lead = "color:var(--text);font-weight:700" if w >= lo else "color:var(--muted);font-weight:600"
+                duel_rows += (f"<div class='p-duel'><span class='opp'>vs {opp[:10]}</span>"
+                              f"<span class='rec'><span style='{lead}'>{w}</span> &ndash; {lo}</span></div>")
+            blocks.append(f"<div class='p-sec'>Direkte Duelle (lokal)</div>{duel_rows}")
+
+            # Letzte 5 (lokal)
+            p_df = df_comp[(df_comp['Spieler1'] == name) | (df_comp['Spieler2'] == name)].sort_values('ID') if has_comp else pd.DataFrame()
             if not p_df.empty:
-                st.markdown("**Letzte 5 Spiele (Lokal)**")
-                history_html = "<div style='font-family: monospace; font-size: 0.9rem;'>"
+                hist = ""
                 for _, r in p_df.tail(5).iloc[::-1].iterrows():
                     is_p1 = r['Spieler1'] == name
                     opp = r['Spieler2'] if is_p1 else r['Spieler1']
-                    s_me = r['Score1'] if is_p1 else r['Score2']
-                    s_opp = r['Score2'] if is_p1 else r['Score1']
-                    if s_me > s_opp: res_col, res_text = "#22C55E", "W"
-                    elif s_me < s_opp: res_col, res_text = "#F43F5E", "L"
-                    else: res_col, res_text = "#8A93A6888", "D"
-                    history_html += f"<div style='margin-bottom: 4px;'><span style='color: {res_col}; font-weight: bold; width: 20px; display: inline-block;'>{res_text}</span> vs {opp} ({s_me}:{s_opp})</div>"
-                history_html += "</div>"
-                st.markdown(history_html, unsafe_allow_html=True)
+                    s_me = int(r['Score1'] if is_p1 else r['Score2']); s_opp = int(r['Score2'] if is_p1 else r['Score1'])
+                    badge = "<span class='p-res w'>W</span>" if s_me > s_opp else ("<span class='p-res l'>L</span>" if s_me < s_opp else "<span class='p-res d'>U</span>")
+                    hist += f"<div class='p-hist'>{badge}<span style='color:var(--muted)'>vs {opp[:10]} ({s_me}:{s_opp})</span></div>"
+                blocks.append(f"<div class='p-sec'>Letzte 5 (lokal)</div>{hist}")
 
-            st.markdown("---")
+            # Meistgespielte Karten (lokal) als Mini-Balken
             top_u = calculate_card_stats(name, df_comp)
             if not top_u.empty:
-                st.markdown("**Meistgespielte Karten:**")
-                st.dataframe(top_u, hide_index=True, use_container_width=True)
+                maxg = top_u['Gespielt'].max()
+                cb = ""
+                for _, r in top_u.iterrows():
+                    pct = (r['Gespielt'] / maxg * 100) if maxg > 0 else 0
+                    cb += (f"<div class='p-card-bar'><span class='cn'>{r['Karte']}</span>"
+                           f"<span class='ct'><span class='cf' style='width:{pct:.0f}%'></span></span>"
+                           f"<span class='cv'>{int(r['Gespielt'])}&times;</span></div>")
+                blocks.append(f"<div class='p-sec'>Meistgespielte Karten</div>{cb}")
+
+            divider = "<div class='p-div'></div>"
+            st.markdown(f"<div class='pcard'>{divider.join(blocks)}</div>", unsafe_allow_html=True)
 
 # --- TAB 3: SPIELER-ANALYSE (DETAIL, GLOBAL) ---
 with tab_spieler_glob:
