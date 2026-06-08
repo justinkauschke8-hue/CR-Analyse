@@ -236,18 +236,23 @@ def get_df_from_sheet(worksheet):
     return pd.DataFrame()
 
 # --- API LOGIK ---
+# Erst über den RoyaleAPI-Proxy (feste IP, von überall nutzbar), dann direkt als Fallback.
+API_BASES = ["https://proxy.royaleapi.dev/v1", "https://api.clashroyale.com/v1"]
+
 @st.cache_data(ttl=60)
 def get_api_data(endpoint, tag):
-    url = f"https://api.clashroyale.com/v1/players/%23{tag}/{endpoint}" if endpoint else f"https://api.clashroyale.com/v1/players/%23{tag}"
     headers = {"Authorization": f"Bearer {API_KEY}"}
-    try:
-        res = requests.get(url, headers=headers, timeout=10)
-        if res.status_code == 200:
-            return res.json()
-        else:
-            return {"_error": True, "_status": res.status_code, "_msg": res.text[:300]}
-    except Exception as e:
-        return {"_error": True, "_status": 0, "_msg": str(e)}
+    last = {"_error": True, "_status": 0, "_msg": "kein Versuch"}
+    for base in API_BASES:
+        url = f"{base}/players/%23{tag}/{endpoint}" if endpoint else f"{base}/players/%23{tag}"
+        try:
+            res = requests.get(url, headers=headers, timeout=10)
+            if res.status_code == 200:
+                return res.json()
+            last = {"_error": True, "_status": res.status_code, "_msg": res.text[:300]}
+        except Exception as e:
+            last = {"_error": True, "_status": 0, "_msg": str(e)}
+    return last
 
 def render_deck_center(tag):
     """Aktuelles Deck (8 Karten als Bilder via st.image), Ø-Elixier und Lieblingskarte – live aus dem Profil."""
