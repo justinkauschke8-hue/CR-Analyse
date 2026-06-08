@@ -160,7 +160,7 @@ def scan_for_battles():
 
     if new_comp_rows: ws_comp.append_rows(new_comp_rows)
     if new_fun_rows: ws_fun.append_rows(new_fun_rows)
-    if new_global_rows: ws_global.append_rows(new_global_rows)
+    if new_global_rows: ws_global.append_rows(new_global_rows, value_input_option="RAW")
     
     if profile_rows:
         ws_prof.clear()

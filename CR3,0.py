@@ -1134,65 +1134,18 @@ with tab_spieler_glob:
             flex_index = len(unique_cards)
 
             st.markdown("---")
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.markdown("**1. Historische Formkurve**")
-                st.markdown("<div style='color:#8A93A6; font-size:12px; margin-top:-10px; margin-bottom:5px;'>Gesamte Siegquote im Archiv. Über 50% = Positiv.</div>", unsafe_allow_html=True)
-                fig_wr = go.Figure(go.Indicator(mode="gauge+number", value=wr_recent, number={'suffix': "%"}, gauge={'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "#444"}, 'bar': {'color': "#5B8DEF"}, 'bgcolor': "#141A23", 'borderwidth': 0}))
-                fig_wr = style_fig(fig_wr, height=200, legend=False)
-                st.plotly_chart(fig_wr, use_container_width=True)
-            with c2:
-                st.markdown("**2 & 3. Offensiv vs Defensiv**")
-                st.markdown("<div style='color:#8A93A6; font-size:12px; margin-top:-10px; margin-bottom:5px;'>Durchschnittlich geholte/kassierte Kronen. Höher = Aggressiver.</div>", unsafe_allow_html=True)
-                df_cr = pd.DataFrame({'Typ': ['Offensiv', 'Defensiv'], 'Kronen': [avg_cr_for, avg_cr_ag]})
-                fig_cr = px.bar(df_cr, x='Typ', y='Kronen', text_auto='.2f', color='Typ', color_discrete_map={'Offensiv': '#22C55E', 'Defensiv': '#F43F5E'})
-                fig_cr = style_fig(fig_cr, height=200, legend=False); fig_cr.update_layout(yaxis_title="", xaxis_title="")
-                st.plotly_chart(fig_cr, use_container_width=True)
-            with c3:
-                st.markdown("**7. Deck-Flexibilität**")
-                st.markdown("<div style='color:#8A93A6; font-size:12px; margin-top:-10px; margin-bottom:30px;'>Anzahl genutzter einzigartiger Karten. Je höher, desto unberechenbarer.</div>", unsafe_allow_html=True)
-                st.metric(label="Gespielte einzigartige Karten", value=flex_index, delta=f"Aus {b_games} Matches", delta_color="off")
-
-            c4, c5, c6 = st.columns(3)
-            with c4:
-                st.markdown("**4. Zu-Null-Quote (Clean Sheets)**")
-                st.markdown("<div style='color:#8A93A6; font-size:12px; margin-top:-10px; margin-bottom:5px;'>Prozentsatz der Spiele ohne Gegentor (Perfekte Defensive).</div>", unsafe_allow_html=True)
-                fig_cs = px.pie(names=['Clean Sheets', 'Gegentor'], values=[clean_sheet_pct, 100-clean_sheet_pct], hole=0.6, color_discrete_sequence=['#5B8DEF', '#262E3D'])
-                fig_cs.update_traces(textinfo='none')
-                fig_cs = style_fig(fig_cs, height=200, legend=False); fig_cs.update_layout(annotations=[dict(text=f"{clean_sheet_pct:.0f}%", x=0.5, y=0.5, font_size=22, showarrow=False)])
-                st.plotly_chart(fig_cs, use_container_width=True)
-            with c5:
-                st.markdown("**5. Clutch-Rating (Nervenstärke)**")
-                st.markdown("<div style='color:#8A93A6; font-size:12px; margin-top:-10px; margin-bottom:5px;'>Siegquote bei knappen Spielen (Exakt 1 Krone Unterschied).</div>", unsafe_allow_html=True)
-                if clutch_games == 0:
-                    st.info("Keine knappen Spiele verzeichnet.")
-                else:
-                    fig_cl = px.pie(names=['Knapper Sieg', 'Knappe Ndl'], values=[clutch_pct, 100-clutch_pct], hole=0.6, color_discrete_sequence=['#22C55E', '#262E3D'])
-                    fig_cl.update_traces(textinfo='none')
-                    fig_cl = style_fig(fig_cl, height=200, legend=False); fig_cl.update_layout(annotations=[dict(text=f"{clutch_pct:.0f}%", x=0.5, y=0.5, font_size=22, showarrow=False)])
-                    st.plotly_chart(fig_cl, use_container_width=True)
-            with c6:
-                st.markdown("**6. Zerstörungs-Quote (3-Crowns)**")
-                st.markdown("<div style='color:#8A93A6; font-size:12px; margin-top:-10px; margin-bottom:5px;'>Anteil der Siege, die durch absolute Vernichtung erzielt wurden.</div>", unsafe_allow_html=True)
-                if b_wins == 0:
-                    st.info("Keine Siege verzeichnet.")
-                else:
-                    fig_3c = px.pie(names=['3 Kronen', 'Normaler Sieg'], values=[three_cr_pct, 100-three_cr_pct], hole=0.6, color_discrete_sequence=['#F5B544', '#262E3D'])
-                    fig_3c.update_traces(textinfo='none')
-                    fig_3c = style_fig(fig_3c, height=200, legend=False); fig_3c.update_layout(annotations=[dict(text=f"{three_cr_pct:.0f}%", x=0.5, y=0.5, font_size=22, showarrow=False)])
-                    st.plotly_chart(fig_3c, use_container_width=True)
-
-            with st.expander("Erklärungen und Formeln zu den Kennzahlen (Ausklappen)"):
-                st.markdown("""
-                Diese Daten basieren auf den im Archiv hinterlegten globalen Spielen.
-
-                **1. Historische Formkurve:** Die exakte Siegquote aller erfassten globalen Spiele. Formel: $\\frac{Siege}{Matches} \\times 100$
-                **2 & 3. Offensiv/Defensiv:** Durchschnitt der geholten/zugelassenen Kronen pro Spiel. Formel: $\\frac{\\sum Kronen}{Matches}$
-                **4. Zu-Null-Quote:** Spiele ohne eine einzige zugelassene Krone des Gegners. Formel: $\\frac{Spiele\\ mit\\ 0\\ Gegentoren}{Matches} \\times 100$
-                **5. Clutch-Rating:** Siegesquote bei extrem engen Matches (exakt 1 Krone Differenz). Formel: $\\frac{Siege\\ mit\\ 1\\ Krone\\ Diff}{Alle\\ Matches\\ mit\\ 1\\ Krone\\ Diff} \\times 100$
-                **6. Zerstörungs-Quote:** Anteil der Siege, die mit 3 Kronen gewonnen wurden. Formel: $\\frac{3\\text{-Kronen Siege}}{Alle\\ Siege} \\times 100$
-                **7. Flexibilität:** Absolute Anzahl unterschiedlicher gespielter Karten in der gesamten erfassten Historie.
-                """)
+            st.subheader("Globale Kennzahlen")
+            st.markdown("<div class='subtle-note'>Kerndaten aus allen archivierten Spielen dieses Accounts.</div>", unsafe_allow_html=True)
+            st.markdown(f"""
+<div class='kpi-grid'>
+  <div class='kpi'><div class='label'>Globale Winrate</div><div class='value'>{wr_recent:.1f}%</div><div class='sub'>über {b_games} Spiele</div></div>
+  <div class='kpi'><div class='label'>Ø Kronen · offensiv</div><div class='value'>{avg_cr_for:.2f}</div><div class='sub'>geholt pro Spiel</div></div>
+  <div class='kpi'><div class='label'>Ø Gegentore · defensiv</div><div class='value'>{avg_cr_ag:.2f}</div><div class='sub'>kassiert pro Spiel</div></div>
+  <div class='kpi'><div class='label'>Zu-Null-Quote</div><div class='value'>{clean_sheet_pct:.0f}%</div><div class='sub'>Spiele ohne Gegentor</div></div>
+  <div class='kpi'><div class='label'>3-Kronen-Quote</div><div class='value'>{three_cr_pct:.0f}%</div><div class='sub'>der Siege</div></div>
+  <div class='kpi'><div class='label'>Deck-Vielfalt</div><div class='value'>{flex_index}</div><div class='sub'>einzigartige Karten</div></div>
+</div>
+""", unsafe_allow_html=True)
 
             # --- Match-Effizienz (neue Bot-Felder) ---
             st.markdown("---")
@@ -1201,6 +1154,8 @@ with tab_spieler_glob:
             enr = p_global.copy()
             if 'ElixirLeaked' in enr.columns:
                 enr['_el'] = pd.to_numeric(enr['ElixirLeaked'], errors='coerce')
+                # Locale-Fix: alte Werte wurden ×100 gespeichert (5.35 -> 535); echte Leaks liegen < ~30
+                enr['_el'] = enr['_el'].where(enr['_el'] < 50, enr['_el'] / 100)
                 enr = enr.dropna(subset=['_el'])
             else:
                 enr = enr.iloc[0:0]
@@ -1212,11 +1167,11 @@ with tab_spieler_glob:
                 avg_towers = enr['PrincessHP'].apply(_standing).mean() if 'PrincessHP' in enr.columns else 0
                 king = pd.to_numeric(enr['KingHP'], errors='coerce').dropna() if 'KingHP' in enr.columns else pd.Series(dtype=float)
                 king_alive = (king > 0).mean() * 100 if len(king) else 0
-                if avg_el < 2.0:    el_label, el_col = "Effizient", "#22C55E"
-                elif avg_el <= 3.5: el_label, el_col = "Okay", "#5B8DEF"
+                if avg_el < 3.0:    el_label, el_col = "Effizient", "#22C55E"
+                elif avg_el <= 6.0: el_label, el_col = "Okay", "#5B8DEF"
                 else:               el_label, el_col = "Viel Leak", "#F43F5E"
                 e1, e2, e3 = st.columns(3)
-                e1.metric("Ø vergeudetes Elixier", f"{avg_el:.2f}", help="Übergelaufenes Elixier pro Spiel. Niedriger = effizienter. Richtwert: <2 gut · 2–3.5 okay · >3.5 viel.")
+                e1.metric("Ø vergeudetes Elixier", f"{avg_el:.2f}", help="Übergelaufenes Elixier pro Spiel (Leiste über 10 gelaufen). Niedriger = effizienter. Richtwert: <3 gut · 3–6 okay · >6 viel.")
                 e1.markdown(f"<div style='margin-top:-10px;'><span style='background:{el_col}22; color:{el_col}; font-size:0.72rem; font-weight:700; padding:2px 9px; border-radius:999px;'>{el_label}</span></div>", unsafe_allow_html=True)
                 e2.metric("Ø stehende Prinzesstürme", f"{avg_towers:.2f} / 2", help="Höher = bessere Defensive")
                 e3.metric("King-Tower überlebt", f"{king_alive:.0f}%")
