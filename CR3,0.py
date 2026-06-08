@@ -1212,11 +1212,34 @@ with tab_spieler_glob:
                 avg_towers = enr['PrincessHP'].apply(_standing).mean() if 'PrincessHP' in enr.columns else 0
                 king = pd.to_numeric(enr['KingHP'], errors='coerce').dropna() if 'KingHP' in enr.columns else pd.Series(dtype=float)
                 king_alive = (king > 0).mean() * 100 if len(king) else 0
+                if avg_el < 2.0:    el_label, el_col = "Effizient", "#22C55E"
+                elif avg_el <= 3.5: el_label, el_col = "Okay", "#5B8DEF"
+                else:               el_label, el_col = "Viel Leak", "#F43F5E"
                 e1, e2, e3 = st.columns(3)
-                e1.metric("Ø vergeudetes Elixier", f"{avg_el:.2f}", help="Niedriger = effizienter")
+                e1.metric("Ø vergeudetes Elixier", f"{avg_el:.2f}", help="Übergelaufenes Elixier pro Spiel. Niedriger = effizienter. Richtwert: <2 gut · 2–3.5 okay · >3.5 viel.")
+                e1.markdown(f"<div style='margin-top:-10px;'><span style='background:{el_col}22; color:{el_col}; font-size:0.72rem; font-weight:700; padding:2px 9px; border-radius:999px;'>{el_label}</span></div>", unsafe_allow_html=True)
                 e2.metric("Ø stehende Prinzesstürme", f"{avg_towers:.2f} / 2", help="Höher = bessere Defensive")
                 e3.metric("King-Tower überlebt", f"{king_alive:.0f}%")
                 st.caption(f"Basis: {len(enr)} neu erfasste Spiele.")
+
+                # Verlauf: Elixier-Leak je Spiel (chronologisch)
+                yv = enr['_el'].round(2).tolist()
+                if len(yv) >= 2:
+                    xv = list(range(1, len(yv) + 1))
+                    st.markdown("<div class='subtle-note' style='margin-top:10px;'>Elixier-Leak je Spiel (chronologisch) – gepunktete Linie = Schnitt.</div>", unsafe_allow_html=True)
+                    fig_el = go.Figure()
+                    fig_el.add_trace(go.Scatter(x=xv, y=yv, mode="lines+markers",
+                        line=dict(color=el_col, width=2.5, shape="spline", smoothing=0.5),
+                        marker=dict(size=5, color=el_col),
+                        fill="tozeroy", fillcolor="rgba(91,141,239,0.08)",
+                        hovertemplate="Spiel %{x} · %{y:.2f} Leak<extra></extra>"))
+                    fig_el = style_fig(fig_el, height=240, legend=False)
+                    fig_el.add_hline(y=avg_el, line_dash="dot", line_color="#8A93A6",
+                                     annotation_text=f"Ø {avg_el:.2f}", annotation_position="top left")
+                    fig_el.update_xaxes(visible=False, showgrid=False)
+                    fig_el.update_yaxes(title_text="Leak", showgrid=True, gridcolor="#1A2230", rangemode="tozero")
+                    fig_el.update_layout(margin=dict(t=10, b=10, l=10, r=10))
+                    st.plotly_chart(fig_el, use_container_width=True)
             else:
                 st.info("Wird gesammelt: Effizienz-Felder (Elixier, Turm-HP) kommen ab jetzt pro Spiel ins Archiv.")
 
