@@ -1144,6 +1144,56 @@ with tab_spieler_glob:
                 **7. Flexibilität:** Absolute Anzahl unterschiedlicher gespielter Karten in der gesamten erfassten Historie.
                 """)
 
+            # --- Match-Effizienz (neue Bot-Felder) ---
+            st.markdown("---")
+            st.subheader("Match-Effizienz")
+            st.markdown("<div class='subtle-note'>Aus den neu erfassten Feldern: vergeudetes Elixier und Turm-Defensive. Füllt sich, während der Bot läuft.</div>", unsafe_allow_html=True)
+            enr = p_global.copy()
+            if 'ElixirLeaked' in enr.columns:
+                enr['_el'] = pd.to_numeric(enr['ElixirLeaked'], errors='coerce')
+                enr = enr.dropna(subset=['_el'])
+            else:
+                enr = enr.iloc[0:0]
+            if len(enr) > 0:
+                def _standing(s):
+                    s = str(s).strip()
+                    return len([x for x in s.split('/') if x.strip()]) if s else 0
+                avg_el = enr['_el'].mean()
+                avg_towers = enr['PrincessHP'].apply(_standing).mean() if 'PrincessHP' in enr.columns else 0
+                king = pd.to_numeric(enr['KingHP'], errors='coerce').dropna() if 'KingHP' in enr.columns else pd.Series(dtype=float)
+                king_alive = (king > 0).mean() * 100 if len(king) else 0
+                e1, e2, e3 = st.columns(3)
+                e1.metric("Ø vergeudetes Elixier", f"{avg_el:.2f}", help="Niedriger = effizienter")
+                e2.metric("Ø stehende Prinzesstürme", f"{avg_towers:.2f} / 2", help="Höher = bessere Defensive")
+                e3.metric("King-Tower überlebt", f"{king_alive:.0f}%")
+                st.caption(f"Basis: {len(enr)} neu erfasste Spiele.")
+            else:
+                st.info("Wird gesammelt: Effizienz-Felder (Elixier, Turm-HP) kommen ab jetzt pro Spiel ins Archiv.")
+
+            # --- Modus-Aufschlüsselung ---
+            st.markdown("---")
+            st.subheader("Modus-Aufschlüsselung")
+            st.markdown("<div class='subtle-note'>Spiele und Siegquote je Spielmodus.</div>", unsafe_allow_html=True)
+            if 'GameMode' in p_global.columns:
+                gm = p_global.copy()
+                gm['_mode'] = gm['GameMode'].astype(str).str.strip().replace('', 'Unbekannt')
+                gm['_me'] = pd.to_numeric(gm['Score_Me'], errors='coerce')
+                gm['_op'] = pd.to_numeric(gm['Score_Opp'], errors='coerce')
+                mstats = []
+                for mode, g in gm.groupby('_mode'):
+                    n = len(g); wr = (g['_me'] > g['_op']).sum() / n * 100 if n else 0
+                    mstats.append((mode, n, wr))
+                mstats.sort(key=lambda x: -x[1])
+                maxn = max((n for _, n, _ in mstats), default=1)
+                bars = ""
+                for mode, n, wr in mstats:
+                    bars += (f"<div class='hbar-row'><span class='hbar-name'>{mode}</span>"
+                             f"<div class='hbar-track'><div class='hbar-fill' style='width:{n/maxn*100:.0f}%; background:#5A6678'></div></div>"
+                             f"<span class='hbar-val'>{n} · {wr:.0f}%</span></div>")
+                st.markdown(f"<div class='tbl-wrap' style='padding:16px 20px;'>{bars}</div>", unsafe_allow_html=True)
+            else:
+                st.info("Modus-Daten werden ab jetzt erfasst.")
+
             st.markdown("---")
             st.subheader("Letzte 5 Globale Matches")
             st.markdown("<div style='color:#8A93A6; font-size:13px; margin-top:-10px; margin-bottom:10px;'>Auszug aus dem Global-Archiv für diesen Spieler.</div>", unsafe_allow_html=True)
@@ -1151,8 +1201,28 @@ with tab_spieler_glob:
 
             st.markdown("---")
             st.subheader("Karten, gegen die am meisten verloren wurde")
-            st.markdown("<div style='color:#8A93A6; font-size:13px; margin-top:-10px; margin-bottom:10px;'>Welche gegnerischen Karten tauchen in den Niederlagen dieses Spielers am häufigsten auf?</div>", unsafe_allow_html=True)
-            st.info("⏳ Daten werden noch gesammelt. Für diese Auswertung muss der Bot (auto_updater.py) zusätzlich die gegnerischen Decks im Global-Archiv speichern – diese Erweiterung kommt separat. Sobald Daten vorliegen, erscheint hier automatisch die Tabelle.")
+            st.markdown("<div class='subtle-note'>Welche gegnerischen Karten tauchen in den Niederlagen dieses Spielers am häufigsten auf? (aus dem Global-Archiv)</div>", unsafe_allow_html=True)
+            krypt = {}
+            if 'Karten_Opp' in p_global.columns:
+                kl = p_global.copy()
+                kl['_me'] = pd.to_numeric(kl['Score_Me'], errors='coerce')
+                kl['_op'] = pd.to_numeric(kl['Score_Opp'], errors='coerce')
+                for s in kl[kl['_me'] < kl['_op']]['Karten_Opp'].astype(str):
+                    for c in s.split(','):
+                        c = c.strip()
+                        if c:
+                            krypt[c] = krypt.get(c, 0) + 1
+            if krypt:
+                top = sorted(krypt.items(), key=lambda x: -x[1])[:8]
+                maxc = top[0][1]
+                bars = ""
+                for card, cnt in top:
+                    bars += (f"<div class='p-card-bar'><span class='cn' style='width:130px'>{card}</span>"
+                             f"<span class='ct'><span class='cf' style='width:{cnt/maxc*100:.0f}%'></span></span>"
+                             f"<span class='cv'>{cnt}&times;</span></div>")
+                st.markdown(f"<div class='tbl-wrap' style='padding:16px 20px;'>{bars}</div>", unsafe_allow_html=True)
+            else:
+                st.info("Wird gesammelt: Sobald der Bot Niederlagen mit Gegner-Decks erfasst, erscheinen hier die häufigsten Karten.")
 
 # --- TAB 4: AKTIVITÄT & TRENDS ---
 with tab_trends:
