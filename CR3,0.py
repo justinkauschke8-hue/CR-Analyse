@@ -980,6 +980,49 @@ with tab_spieler_glob:
                 st.plotly_chart(fig_form, use_container_width=True)
             st.markdown("---")
 
+            # --- Echte Trophäen-Reise (aus StartTrophies, neu vom Bot erfasst) ---
+            st.subheader("Echte Trophäen-Reise")
+            st.markdown("<div class='subtle-note'>Tatsächlicher Trophäenstand über die Zeit aus dem Live-Archiv. Wächst, während der Bot läuft.</div>", unsafe_allow_html=True)
+            if 'StartTrophies' in p_global.columns:
+                tro = p_global.copy()
+                tro['Time'] = tro['Time_ID'].apply(parse_time)
+                tro['Tro'] = pd.to_numeric(tro['StartTrophies'], errors='coerce')
+                tro = tro.dropna(subset=['Time', 'Tro']).sort_values('Time')
+            else:
+                tro = pd.DataFrame()
+            if len(tro) >= 2:
+                ys_t = tro['Tro'].astype(int).tolist()
+                xs_t = list(range(1, len(ys_t) + 1))
+                times_t = tro['Time'].dt.strftime("%d.%m. %H:%M").tolist()
+                delta = ys_t[-1] - ys_t[0]
+                accent_t = "#22C55E" if delta > 0 else ("#F43F5E" if delta < 0 else "#5B8DEF")
+                fig_tro = go.Figure()
+                fig_tro.add_trace(go.Scatter(
+                    x=xs_t, y=ys_t, mode="lines", customdata=times_t,
+                    line=dict(color=accent_t, width=3, shape="spline", smoothing=0.5),
+                    fill="tozeroy", fillcolor="rgba(91,141,239,0.10)",
+                    hovertemplate="%{customdata} · %{y} Trophäen<extra></extra>"))
+                fig_tro.add_trace(go.Scatter(
+                    x=[xs_t[-1]], y=[ys_t[-1]], mode="markers+text",
+                    marker=dict(size=12, color=accent_t, line=dict(color="#0B0E14", width=3)),
+                    text=[f"  {ys_t[-1]}"], textposition="middle right",
+                    textfont=dict(color=accent_t, size=14, family="Inter"), hoverinfo="skip"))
+                fig_tro = style_fig(fig_tro, height=300, legend=False)
+                fig_tro.update_xaxes(visible=False, showgrid=False)
+                fig_tro.update_yaxes(title_text="Trophäen", showgrid=True, gridcolor="#1A2230", zeroline=False)
+                lo, hi = min(ys_t), max(ys_t)
+                pad = max(20, int((hi - lo) * 0.15))
+                fig_tro.update_yaxes(range=[lo - pad, hi + pad])
+                fig_tro.update_layout(margin=dict(t=14, b=10, l=10, r=52))
+                st.plotly_chart(fig_tro, use_container_width=True)
+                c_t1, c_t2, c_t3 = st.columns(3)
+                c_t1.metric("Aktuell", f"{ys_t[-1]}")
+                c_t2.metric("Veränderung (erfasst)", f"{delta:+d}")
+                c_t3.metric("Höchststand (erfasst)", f"{max(ys_t)}")
+            else:
+                st.info("Wird gesammelt: Der Bot schreibt ab jetzt den Trophäenstand pro Spiel mit. Sobald mindestens 2 neue Spiele erfasst sind, erscheint hier die echte Kurve.")
+            st.markdown("---")
+
             b_games, b_wins, b_losses = 0, 0, 0
             crowns_for, crowns_against = 0, 0
             clean_sheets, clutch_games, clutch_wins, three_crown_wins = 0, 0, 0, 0
