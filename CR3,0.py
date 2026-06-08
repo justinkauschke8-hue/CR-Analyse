@@ -106,12 +106,26 @@ h2{ font-size:1.45rem; } h3{ font-size:1.12rem; }
 .chip.neg{ background:rgba(244,63,94,0.14); color:var(--loss); }
 .chip.neu{ background:var(--surface-2); color:var(--muted); }
 
-/* H2H-Karten */
-.h2h-card{ display:flex; align-items:center; justify-content:space-between; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:13px 18px; margin-bottom:9px; }
-.h2h-card .p{ font-weight:600; width:32%; }
-.h2h-card .mid{ text-align:center; }
-.h2h-card .sc{ font-weight:800; font-size:1.15rem; letter-spacing:1px; }
-.h2h-card .meta{ font-size:0.72rem; color:var(--muted); margin-top:3px; }
+/* H2H – sachlich, monochrom, Fortschritt zu 100 Siegen pro Begegnung */
+.h2h-row{ background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:15px 20px; margin-bottom:10px; }
+.h2h-head{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:13px; padding-bottom:11px; border-bottom:1px solid var(--border); }
+.h2h-title{ font-weight:600; font-size:0.95rem; color:var(--text); }
+.h2h-meta{ font-size:0.74rem; color:var(--muted); }
+.h2h-line{ display:flex; align-items:center; gap:14px; margin:9px 0; }
+.h2h-pname{ width:104px; font-size:0.87rem; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.h2h-track{ flex:1; height:7px; background:var(--surface-2); border-radius:6px; overflow:hidden; }
+.h2h-fill{ height:100%; background:#5A6678; border-radius:6px; }
+.h2h-count{ width:62px; text-align:right; font-size:0.85rem; font-weight:600; color:var(--muted); font-variant-numeric:tabular-nums; }
+.h2h-line.lead .h2h-pname{ color:var(--text); font-weight:600; }
+.h2h-line.lead .h2h-fill{ background:#E6EAF1; }
+.h2h-line.lead .h2h-count{ color:var(--text); }
+
+/* Horizontale Wertebalken (Race / Winrate) – Spielerfarbe als Kennung, ruhiger Look */
+.hbar-row{ display:flex; align-items:center; gap:14px; margin:12px 0; }
+.hbar-name{ width:104px; font-size:0.87rem; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.hbar-track{ flex:1; height:12px; background:var(--surface-2); border-radius:7px; overflow:hidden; }
+.hbar-fill{ height:100%; border-radius:7px; opacity:0.9; }
+.hbar-val{ width:64px; text-align:right; font-size:0.85rem; font-weight:600; color:var(--text); font-variant-numeric:tabular-nums; }
 
 /* dezente Notiz */
 .subtle-note{ color:var(--muted); font-size:0.82rem; margin:-6px 0 16px; }
@@ -236,6 +250,7 @@ def scan_for_battles():
 
 # --- EINHEITLICHES DIAGRAMM-DESIGN ---
 CHART_COLORWAY = ["#5B8DEF", "#22C55E", "#F5B544", "#F43F5E", "#7C5CFF"]
+PLAYER_COLORS = {p[:10]: CHART_COLORWAY[i % len(CHART_COLORWAY)] for i, p in enumerate(TAGS.keys())}
 
 def style_fig(fig, height=300, legend=True, smooth=True):
     """Einheitliches, elegantes Dark-Theme fuer ALLE Plotly-Diagramme:
@@ -713,37 +728,52 @@ with tab_dbl:
         st.subheader("Head-to-Head Historie")
         st.markdown("<div class='subtle-note' style='margin-bottom:14px;'>Direkter Vergleich aller Begegnungen. Wer dominiert wen?</div>", unsafe_allow_html=True)
         if not h2h_df.empty:
-            cards = ""
+            html = ""
             for _, r in h2h_df.iterrows():
                 parts = str(r['Matchup']).split(" vs ")
                 p1 = parts[0]; p2 = parts[1] if len(parts) > 1 else ""
                 sc = str(r['Score']).split(":")
-                s1 = sc[0].strip(); s2 = sc[1].strip() if len(sc) > 1 else ""
                 try:
-                    s1i, s2i = int(s1), int(s2)
-                    c1 = "var(--win)" if s1i > s2i else ("var(--loss)" if s1i < s2i else "var(--muted)")
-                    c2 = "var(--win)" if s2i > s1i else ("var(--loss)" if s2i < s1i else "var(--muted)")
+                    w1 = int(sc[0].strip()); w2 = int(sc[1].strip())
                 except Exception:
-                    c1 = c2 = "var(--text)"
-                meta = f"{int(r['Spiele'])} Spiele &middot; Dominanz {r['Dominanz']}"
-                if str(r['Streak']) != "-": meta += f" &middot; &#128293; {r['Streak']}"
-                cards += (f"<div class='h2h-card'><div class='p' style='text-align:right'>{p1}</div>"
-                          f"<div class='mid'><div class='sc'><span style='color:{c1}'>{s1}</span>"
-                          f"<span style='color:var(--muted)'> : </span><span style='color:{c2}'>{s2}</span></div>"
-                          f"<div class='meta'>{meta}</div></div><div class='p'>{p2}</div></div>")
-            st.markdown(cards, unsafe_allow_html=True)
+                    w1 = w2 = 0
+                lead1 = " lead" if w1 >= w2 else ""
+                lead2 = " lead" if w2 > w1 else ""
+                html += (
+                    "<div class='h2h-row'>"
+                    f"<div class='h2h-head'><span class='h2h-title'>{p1} &nbsp;vs&nbsp; {p2}</span>"
+                    f"<span class='h2h-meta'>{int(r['Spiele'])} Spiele &middot; Dominanz {r['Dominanz']}</span></div>"
+                    f"<div class='h2h-line{lead1}'><span class='h2h-pname'>{p1}</span>"
+                    f"<div class='h2h-track'><div class='h2h-fill' style='width:{min(100, w1)}%'></div></div>"
+                    f"<span class='h2h-count'>{w1} / 100</span></div>"
+                    f"<div class='h2h-line{lead2}'><span class='h2h-pname'>{p2}</span>"
+                    f"<div class='h2h-track'><div class='h2h-fill' style='width:{min(100, w2)}%'></div></div>"
+                    f"<span class='h2h-count'>{w2} / 100</span></div>"
+                    "</div>"
+                )
+            st.markdown(html, unsafe_allow_html=True)
 
         st.markdown("---")
         if lb_data:
             c1, c2 = st.columns(2)
             with c1:
-                fig_race = px.bar(df_lb, x='Spieler', y='Siege', text_auto=True, color='Spieler', title="Race to 100 (Absolute Siege)")
-                fig_race = style_fig(fig_race, height=320, legend=False); fig_race.update_yaxes(range=[0, 100])
-                st.plotly_chart(fig_race, use_container_width=True)
+                st.markdown("<h3 style='font-size:1.05rem; margin:0 0 12px;'>Race to 100 &middot; Gesamtsiege</h3>", unsafe_allow_html=True)
+                bars = ""
+                for _, r in df_lb.sort_values('Siege', ascending=False).iterrows():
+                    col = PLAYER_COLORS.get(r['Spieler'], "#5B8DEF")
+                    bars += (f"<div class='hbar-row'><span class='hbar-name'>{r['Spieler']}</span>"
+                             f"<div class='hbar-track'><div class='hbar-fill' style='width:{min(100, int(r['Siege']))}%; background:{col}'></div></div>"
+                             f"<span class='hbar-val'>{int(r['Siege'])} / 100</span></div>")
+                st.markdown(f"<div class='tbl-wrap' style='padding:16px 20px;'>{bars}</div>", unsafe_allow_html=True)
             with c2:
-                fig_wr = px.bar(df_lb, x='Spieler', y='Winrate (%)', text_auto='.1f', color='Spieler', title="Winrate Histogramm")
-                fig_wr = style_fig(fig_wr, height=320, legend=False); fig_wr.update_yaxes(range=[0, 100])
-                st.plotly_chart(fig_wr, use_container_width=True)
+                st.markdown("<h3 style='font-size:1.05rem; margin:0 0 12px;'>Winrate</h3>", unsafe_allow_html=True)
+                bars = ""
+                for _, r in df_lb.sort_values('Winrate (%)', ascending=False).iterrows():
+                    col = PLAYER_COLORS.get(r['Spieler'], "#5B8DEF")
+                    bars += (f"<div class='hbar-row'><span class='hbar-name'>{r['Spieler']}</span>"
+                             f"<div class='hbar-track'><div class='hbar-fill' style='width:{r['Winrate (%)']:.0f}%; background:{col}'></div></div>"
+                             f"<span class='hbar-val'>{r['Winrate (%)']:.1f}%</span></div>")
+                st.markdown(f"<div class='tbl-wrap' style='padding:16px 20px;'>{bars}</div>", unsafe_allow_html=True)
 
 # --- TAB 2: SPIELER LOKAL ---
 with tab_spieler_loc:
