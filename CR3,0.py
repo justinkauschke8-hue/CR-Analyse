@@ -169,6 +169,15 @@ h2{ font-size:1.45rem; } h3{ font-size:1.12rem; }
 .cc-src{ font-family:'SF Mono',Menlo,monospace; font-size:0.76rem; color:#9AB3E0; word-break:break-word; }
 .cc-val{ color:var(--text); font-size:0.84rem; }
 
+/* Deck-Center */
+.deck-grid{ display:grid; grid-template-columns:repeat(8,1fr); gap:10px; margin-top:4px; }
+.deck-card{ background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:8px 6px; text-align:center; position:relative; }
+.deck-card img{ width:100%; max-width:74px; height:auto; display:block; margin:0 auto; }
+.dc-elixir{ position:absolute; top:5px; left:5px; width:21px; height:21px; border-radius:50%; background:#A855C7; color:#fff; font-size:0.7rem; font-weight:700; display:grid; place-items:center; box-shadow:0 1px 4px rgba(0,0,0,0.45); }
+.dc-name{ font-size:0.7rem; color:var(--text); margin-top:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.dc-lvl{ font-size:0.63rem; color:var(--muted); }
+@media (max-width:1100px){ .deck-grid{ grid-template-columns:repeat(4,1fr); } }
+
 /* dezente Notiz */
 .subtle-note{ color:var(--muted); font-size:0.82rem; margin:-6px 0 16px; }
 
@@ -933,6 +942,31 @@ with tab_spieler_glob:
     st.markdown("<div style='color:#8A93A6; font-size:13px; margin-top:-10px; margin-bottom:20px;'>Nutzt das Archiv (Global_Data) aller weltweit gespielten Matches des Accounts.</div>", unsafe_allow_html=True)
 
     selected_p = st.selectbox("Spieler auswählen:", list(TAGS.keys()), key="detail_player")
+
+    # --- Deck-Center (live aus dem Profil) ---
+    st.subheader("Aktuelles Deck")
+    deck_prof = get_api_data("", TAGS[selected_p])
+    if isinstance(deck_prof, dict) and not deck_prof.get("_error") and deck_prof.get("currentDeck"):
+        deck = deck_prof["currentDeck"]
+        avg_elixir = sum(c.get("elixirCost", 0) for c in deck) / len(deck) if deck else 0
+        fav = deck_prof.get("currentFavouriteCard") or {}
+        fav_icon = (fav.get("iconUrls") or {}).get("medium", "")
+        fav_html = (f"<img src='{fav_icon}' style='height:22px;vertical-align:middle;margin:0 5px;'/>{fav.get('name','')}"
+                    if fav_icon else fav.get("name", "–"))
+        st.markdown(
+            f"<div class='subtle-note'>Ø Elixier <b style='color:var(--text)'>{avg_elixir:.1f}</b> &nbsp;&middot;&nbsp; "
+            f"Lieblingskarte: <span style='color:var(--text)'>{fav_html}</span></div>", unsafe_allow_html=True)
+        tiles = ""
+        for c in deck:
+            icon = (c.get("iconUrls") or {}).get("medium", "")
+            tiles += (f"<div class='deck-card'><div class='dc-elixir'>{c.get('elixirCost','')}</div>"
+                      f"<img src='{icon}' loading='lazy'/>"
+                      f"<div class='dc-name'>{c.get('name','')}</div>"
+                      f"<div class='dc-lvl'>Lvl {c.get('level','')}</div></div>")
+        st.markdown(f"<div class='deck-grid'>{tiles}</div>", unsafe_allow_html=True)
+    else:
+        st.info("Aktuelles Deck konnte nicht aus der API geladen werden.")
+    st.markdown("---")
 
     if df_global.empty:
         st.warning("Keine Daten in Global_Data gefunden. Lass den Bot erst laufen!")
