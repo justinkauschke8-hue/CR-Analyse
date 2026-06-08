@@ -82,6 +82,40 @@ h2{ font-size:1.45rem; } h3{ font-size:1.12rem; }
 .side-brand .t{ font-weight:800; font-size:1.02rem; color:var(--text); line-height:1.1; }
 .side-brand .s{ font-size:0.72rem; color:var(--muted); }
 
+/* KPI-Kacheln */
+.kpi-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin:6px 0 18px; }
+.kpi{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px 18px; box-shadow:0 4px 16px rgba(0,0,0,0.25); }
+.kpi .label{ color:var(--muted); font-size:0.74rem; text-transform:uppercase; letter-spacing:0.05em; font-weight:600; }
+.kpi .value{ font-size:1.7rem; font-weight:700; margin-top:6px; color:var(--text); }
+.kpi .sub{ font-size:0.82rem; margin-top:2px; color:var(--muted); }
+.kpi .sub.up{ color:var(--win); } .kpi .sub.down{ color:var(--loss); }
+
+/* Custom-Tabellen */
+.tbl-wrap{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:6px 10px; box-shadow:0 4px 16px rgba(0,0,0,0.25); }
+.ctable{ width:100%; border-collapse:collapse; font-size:0.9rem; }
+.ctable thead th{ text-align:left; color:var(--muted); font-weight:600; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; padding:10px 12px; border-bottom:1px solid var(--border); }
+.ctable tbody td{ padding:11px 12px; border-bottom:1px solid rgba(38,46,61,0.5); color:var(--text); }
+.ctable tbody tr:last-child td{ border-bottom:none; }
+.ctable tbody tr:hover{ background:rgba(91,141,239,0.06); }
+.ctable .name{ font-weight:600; }
+.ctable .wr{ font-weight:700; }
+.rank{ width:26px; height:26px; border-radius:8px; display:inline-grid; place-items:center; font-weight:700; font-size:0.78rem; background:var(--surface-2); color:var(--text); }
+.rank.g{ background:linear-gradient(135deg,#F5B544,#E89A2B); color:#1a1205; }
+.chip{ padding:3px 9px; border-radius:999px; font-size:0.76rem; font-weight:600; }
+.chip.pos{ background:rgba(34,197,94,0.14); color:var(--win); }
+.chip.neg{ background:rgba(244,63,94,0.14); color:var(--loss); }
+.chip.neu{ background:var(--surface-2); color:var(--muted); }
+
+/* H2H-Karten */
+.h2h-card{ display:flex; align-items:center; justify-content:space-between; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:13px 18px; margin-bottom:9px; }
+.h2h-card .p{ font-weight:600; width:32%; }
+.h2h-card .mid{ text-align:center; }
+.h2h-card .sc{ font-weight:800; font-size:1.15rem; letter-spacing:1px; }
+.h2h-card .meta{ font-size:0.72rem; color:var(--muted); margin-top:3px; }
+
+/* dezente Notiz */
+.subtle-note{ color:var(--muted); font-size:0.82rem; margin:-6px 0 16px; }
+
 /* Scrollbar */
 ::-webkit-scrollbar{ width:10px; height:10px; }
 ::-webkit-scrollbar-thumb{ background:#2A3343; border-radius:8px; }
@@ -631,7 +665,7 @@ tab_dbl, tab_spieler_loc, tab_spieler_glob, tab_trends, tab_sessions, tab_progno
 # --- TAB 1: 1v1 LIGA ---
 with tab_dbl:
     st.header("Offizielles 1v1 Leaderboard")
-    st.markdown("<div style='color:#8A93A6; font-size:13px; margin-top:-10px; margin-bottom:20px;'>Tabelle aller gewerteten internen Matches. Sortiert nach Winrate und Net-Wins.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='subtle-note'>Race to 100 · Winner stays · alle gewerteten internen Matches, sortiert nach Winrate und Net-Wins.</div>", unsafe_allow_html=True)
     if not df_comp.empty:
         lb_data = []
         for p in TAGS.keys():
@@ -643,28 +677,68 @@ with tab_dbl:
                 winrate = (siege / spiele) * 100
                 net_wins = siege - niederlagen
                 lb_data.append({"Spieler": p[:10], "Spiele": spiele, "Siege": siege, "Niederlagen": niederlagen, "Net-Wins": net_wins, "Winrate (%)": round(winrate, 1)})
+        h2h_df, curr_streak, at_streak = get_h2h_stats_data(df_comp)
+
         if lb_data:
             df_lb = pd.DataFrame(lb_data).sort_values(by=["Winrate (%)", "Net-Wins"], ascending=[False, False]).reset_index(drop=True)
             df_lb.index = df_lb.index + 1
-            st.dataframe(df_lb, use_container_width=True)
-            st.markdown("<div style='color:#8A93A6; font-size:12px; margin-top:-10px;'>Net-Wins: Absolute Differenz zwischen Siegen und Niederlagen. Indikator für echten Fortschritt.</div>", unsafe_allow_html=True)
+            race_leader = df_lb.sort_values('Siege', ascending=False).iloc[0]
+
+            # --- KPI-Kacheln ---
+            st.markdown(f"""
+<div class='kpi-grid'>
+  <div class='kpi'><div class='label'>Aktuelle Winstreak</div><div class='value'>{curr_streak['count']}&times;</div><div class='sub up'>&#9650; {curr_streak['player']}</div></div>
+  <div class='kpi'><div class='label'>All-Time Rekord</div><div class='value'>{at_streak['count']}&times;</div><div class='sub'>{at_streak['player']}</div></div>
+  <div class='kpi'><div class='label'>F&uuml;hrend &middot; Race to 100</div><div class='value'>{int(race_leader['Siege'])} <span style='font-size:0.9rem;color:var(--muted)'>/ 100</span></div><div class='sub up'>&#9650; {race_leader['Spieler']}</div></div>
+</div>
+""", unsafe_allow_html=True)
+
+            # --- Leaderboard als Custom-Tabelle ---
+            rows = ""
+            for rank, (_, r) in enumerate(df_lb.iterrows(), start=1):
+                rcls = "rank g" if rank == 1 else "rank"
+                nw = int(r['Net-Wins'])
+                chip = (f"<span class='chip pos'>+{nw}</span>" if nw > 0 else
+                        (f"<span class='chip neg'>{nw}</span>" if nw < 0 else "<span class='chip neu'>0</span>"))
+                rows += (f"<tr><td><span class='{rcls}'>{rank}</span></td><td class='name'>{r['Spieler']}</td>"
+                         f"<td>{int(r['Spiele'])}</td><td>{int(r['Siege'])}</td><td>{int(r['Niederlagen'])}</td>"
+                         f"<td>{chip}</td><td class='wr'>{r['Winrate (%)']:.1f}%</td></tr>")
+            st.markdown(
+                "<div class='tbl-wrap'><table class='ctable'><thead><tr><th>#</th><th>Spieler</th>"
+                "<th>Spiele</th><th>Siege</th><th>Niederl.</th><th>Net-Wins</th><th>Winrate</th></tr></thead>"
+                f"<tbody>{rows}</tbody></table></div>", unsafe_allow_html=True)
+            st.markdown("<div class='subtle-note' style='margin-top:10px;'>Net-Wins: Differenz aus Siegen und Niederlagen &ndash; Indikator f&uuml;r echten Fortschritt.</div>", unsafe_allow_html=True)
 
         st.markdown("---")
-        h2h_df, curr_streak, at_streak = get_h2h_stats_data(df_comp)
-
         st.subheader("Head-to-Head Historie")
-        st.markdown("<div style='color:#8A93A6; font-size:13px; margin-top:-10px; margin-bottom:10px;'>Direkter Vergleich aller Begegnungen. Wer dominiert wen?</div>", unsafe_allow_html=True)
-        col1, col2 = st.columns(2)
-        col1.metric("Aktuelle Winstreak", f"{curr_streak['count']}x", curr_streak['player'])
-        col2.metric("All-Time Rekord", f"{at_streak['count']}x", at_streak['player'])
-        st.dataframe(h2h_df, use_container_width=True, hide_index=True)
+        st.markdown("<div class='subtle-note' style='margin-bottom:14px;'>Direkter Vergleich aller Begegnungen. Wer dominiert wen?</div>", unsafe_allow_html=True)
+        if not h2h_df.empty:
+            cards = ""
+            for _, r in h2h_df.iterrows():
+                parts = str(r['Matchup']).split(" vs ")
+                p1 = parts[0]; p2 = parts[1] if len(parts) > 1 else ""
+                sc = str(r['Score']).split(":")
+                s1 = sc[0].strip(); s2 = sc[1].strip() if len(sc) > 1 else ""
+                try:
+                    s1i, s2i = int(s1), int(s2)
+                    c1 = "var(--win)" if s1i > s2i else ("var(--loss)" if s1i < s2i else "var(--muted)")
+                    c2 = "var(--win)" if s2i > s1i else ("var(--loss)" if s2i < s1i else "var(--muted)")
+                except Exception:
+                    c1 = c2 = "var(--text)"
+                meta = f"{int(r['Spiele'])} Spiele &middot; Dominanz {r['Dominanz']}"
+                if str(r['Streak']) != "-": meta += f" &middot; &#128293; {r['Streak']}"
+                cards += (f"<div class='h2h-card'><div class='p' style='text-align:right'>{p1}</div>"
+                          f"<div class='mid'><div class='sc'><span style='color:{c1}'>{s1}</span>"
+                          f"<span style='color:var(--muted)'> : </span><span style='color:{c2}'>{s2}</span></div>"
+                          f"<div class='meta'>{meta}</div></div><div class='p'>{p2}</div></div>")
+            st.markdown(cards, unsafe_allow_html=True)
 
         st.markdown("---")
         if lb_data:
             c1, c2 = st.columns(2)
             with c1:
-                fig_race = px.bar(df_lb, x='Spieler', y='Siege', text_auto=True, color='Spieler', title="Race to 200 (Absolute Siege)")
-                fig_race = style_fig(fig_race, height=320, legend=False); fig_race.update_yaxes(range=[0, 200])
+                fig_race = px.bar(df_lb, x='Spieler', y='Siege', text_auto=True, color='Spieler', title="Race to 100 (Absolute Siege)")
+                fig_race = style_fig(fig_race, height=320, legend=False); fig_race.update_yaxes(range=[0, 100])
                 st.plotly_chart(fig_race, use_container_width=True)
             with c2:
                 fig_wr = px.bar(df_lb, x='Spieler', y='Winrate (%)', text_auto='.1f', color='Spieler', title="Winrate Histogramm")
