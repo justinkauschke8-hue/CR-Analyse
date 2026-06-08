@@ -201,7 +201,8 @@ TAGS = {
 }
 
 SOLO_TAGS = {
-    "Flexus": "QUJC02U2L"
+    "Flexus": "QUJC02U2L",
+    "Godwin": "J8LU0JJPV"
 }
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1SZQhK7TeBRI6DspxVJWU31ul_PGTXNOoxcOwE6rn2u8/edit?gid=641247476#gid=641247476"
@@ -740,7 +741,7 @@ st.markdown(f"""
 
 # --- NAVIGATION ---
 tab_dbl, tab_spieler_loc, tab_spieler_glob, tab_trends, tab_sessions, tab_prognose, tab_mc, tab_flexus, tab_konzept = st.tabs([
-    "1v1 Liga", "Spieler (Lokal)", "Spieler-Analyse", "Aktivität & Trends", "Sessions", "Prognose", "Monte Carlo", "Flexus (Solo)", "Daten-Konzept"
+    "1v1 Liga", "Spieler (Lokal)", "Spieler-Analyse", "Aktivität & Trends", "Sessions", "Prognose", "Monte Carlo", "Solo", "Daten-Konzept"
 ])
 
 # --- TAB 1: 1v1 LIGA ---
@@ -1516,14 +1517,13 @@ with tab_mc:
 
 # --- TAB 8: FLEXUS ---
 with tab_flexus:
-    st.markdown("""
+    f_name = st.selectbox("Solo-Spieler auswählen:", list(SOLO_TAGS.keys()), key="solo_player")
+    st.markdown(f"""
         <div style='background: linear-gradient(90deg, #1e1e2f 0%, #141A23 100%); padding: 25px; border-radius: 15px; border-left: 5px solid #22C55E; margin-bottom: 25px;'>
-            <h1 style='margin:0; color: #FFF; font-family: sans-serif; font-weight: 800; letter-spacing: -1px;'>🤴 flexus abi statistik</h1>
+            <h1 style='margin:0; color: #FFF; font-family: sans-serif; font-weight: 800; letter-spacing: -1px;'>{f_name} · Solo-Statistik</h1>
             <p style='margin:0; color: #8A93A6; font-size: 0.9rem;'>Zentrale Dateneinsicht & Live-Prognosen | Global Account</p>
         </div>
     """, unsafe_allow_html=True)
-
-    f_name = "Flexus"
 
     # Robust gegen leere/spaltenlose Sheets: get_df_from_sheet liefert bei 0 Datensätzen
     # einen leeren DataFrame OHNE Spalten -> df['Spieler'] würde sonst KeyError werfen.
@@ -1531,7 +1531,7 @@ with tab_flexus:
     f_glob = df_global[df_global['Spieler'] == f_name].sort_values('Time_ID') if (not df_global.empty and 'Spieler' in df_global.columns) else pd.DataFrame()
 
     if f_prof_all.empty:
-        st.warning("⚠️ Keine Profildaten für Flexus gefunden. Bitte Bot-Verbindung prüfen.")
+        st.warning(f"⚠️ Keine Profildaten für {f_name} gefunden. Bitte Bot-Verbindung prüfen.")
     else:
         f_prof = f_prof_all.iloc[-1]
 
@@ -1585,19 +1585,19 @@ with tab_flexus:
 
             insight = "Ausgeglichenes Matchmaking"
             if f_global_wr > 55: insight = f"Starke globale Winrate ({f_global_wr:.1f}%)"
-            if actual_streak >= 3: insight = f"Momentum Flexus (+{actual_streak} Win-Streak)"
+            if actual_streak >= 3: insight = f"Momentum {f_name} (+{actual_streak} Win-Streak)"
             elif actual_streak <= -3: insight = f"Tilt-Gefahr ({actual_streak} Lose-Streak)"
             elif f_net_wins >= 4: insight = "Gute Tagesform (+ Net-Wins)"
 
             st.markdown(f"""
             <div style='background-color: #141A23; color: #FFF; padding: 15px; border-radius: 6px; border: 1px solid #262E3D; margin-bottom: 20px; font-family: sans-serif; max-width: 800px;'>
             <div style='text-align: center; font-weight: 600; font-size: 1rem; margin-bottom: 15px; border-bottom: 1px solid #222; padding-bottom: 8px;'>
-            Flexus <span style='color: #666; font-size: 0.8rem; margin: 0 8px;'>VS</span> Unbekannter Gegner (Ladder)
+            {f_name} <span style='color: #666; font-size: 0.8rem; margin: 0 8px;'>VS</span> Unbekannter Gegner (Ladder)
             </div>
             <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;'>
             <div style='text-align: left; width: 45%;'>
             <div style='font-size: 1.3rem; font-weight: 700; color: #22C55E;'>{odds_flexus:.2f}</div>
-            <div style='font-size: 0.75rem; color: #777;'>Sieg Flexus ({pf_pct:.0f}%)</div>
+            <div style='font-size: 0.75rem; color: #777;'>Sieg {f_name} ({pf_pct:.0f}%)</div>
             </div>
             <div style='text-align: right; width: 45%;'>
             <div style='font-size: 1.3rem; font-weight: 700; color: #F43F5E;'>{odds_field:.2f}</div>
@@ -1682,7 +1682,7 @@ with tab_flexus:
                 fig_trend.update_traces(line_color='#22C55E', line_width=3, marker=dict(size=8, color="#FFF", line=dict(width=2, color="#22C55E")))
                 st.plotly_chart(fig_trend, use_container_width=True)
             else:
-                st.info("Wird gesammelt: Sobald mindestens 2 Ladder-Spiele von Flexus erfasst sind, erscheint hier die echte Trophäenkurve.")
+                st.info(f"Wird gesammelt: Sobald mindestens 2 Ladder-Spiele von {f_name} erfasst sind, erscheint hier die echte Trophäenkurve.")
 
 # --- TAB 9: DATEN-KONZEPT (Roadmap zur vollen API-Nutzung) ---
 with tab_konzept:

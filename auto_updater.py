@@ -15,7 +15,8 @@ TAGS = {
     "resan": "R902QGYCP",
     "gooterplayer": "VCGLJU02",
     "Jörg": "YY89R9L9G",
-    "Flexus": "QUJC02U2L"  # <-- HIER IST DIE NULL KORRIGIERT!
+    "Flexus": "QUJC02U2L",
+    "Godwin": "J8LU0JJPV"
 }
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1SZQhK7TeBRI6DspxVJWU31ul_PGTXNOoxcOwE6rn2u8/edit?gid=641247476#gid=641247476"
