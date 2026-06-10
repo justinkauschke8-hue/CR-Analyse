@@ -1066,34 +1066,90 @@ with tab_spieler_glob:
             else:
                 tro = pd.DataFrame()
             if len(tro) >= 2:
-                ys_t = tro['Tro'].astype(int).tolist()
-                xs_t = list(range(1, len(ys_t) + 1))
-                times_t = tro['Time'].dt.strftime("%d.%m. %H:%M").tolist()
-                delta = ys_t[-1] - ys_t[0]
-                accent_t = "#22C55E" if delta > 0 else ("#F43F5E" if delta < 0 else "#5B8DEF")
-                fig_tro = go.Figure()
-                fig_tro.add_trace(go.Scatter(
-                    x=xs_t, y=ys_t, mode="lines", customdata=times_t,
-                    line=dict(color=accent_t, width=3, shape="spline", smoothing=0.5),
-                    fill="tozeroy", fillcolor="rgba(91,141,239,0.10)",
-                    hovertemplate="%{customdata} · %{y} Trophäen<extra></extra>"))
-                fig_tro.add_trace(go.Scatter(
-                    x=[xs_t[-1]], y=[ys_t[-1]], mode="markers+text",
-                    marker=dict(size=12, color=accent_t, line=dict(color="#0B0E14", width=3)),
-                    text=[f"  {ys_t[-1]}"], textposition="middle right",
-                    textfont=dict(color=accent_t, size=14, family="Inter"), hoverinfo="skip"))
-                fig_tro = style_fig(fig_tro, height=300, legend=False)
-                fig_tro.update_xaxes(visible=False, showgrid=False)
-                fig_tro.update_yaxes(title_text="Trophäen", showgrid=True, gridcolor="#1A2230", zeroline=False)
-                lo, hi = min(ys_t), max(ys_t)
-                pad = max(20, int((hi - lo) * 0.15))
-                fig_tro.update_yaxes(range=[lo - pad, hi + pad])
-                fig_tro.update_layout(margin=dict(t=14, b=10, l=10, r=52))
-                st.plotly_chart(fig_tro, use_container_width=True)
-                c_t1, c_t2, c_t3 = st.columns(3)
-                c_t1.metric("Aktuell", f"{ys_t[-1]}")
-                c_t2.metric("Veränderung (erfasst)", f"{delta:+d}")
-                c_t3.metric("Höchststand (erfasst)", f"{max(ys_t)}")
+                # --- Filtermodus: zeitlich oder nach Trophäenbereich ---
+                tro_mode = st.radio(
+                    "Ansicht:", ["Zeitraum", "Trophäenbereich"],
+                    horizontal=True, key="tro_journey_mode")
+
+                trof = tro
+                range_info = None  # (von, bis) wenn Bereichsmodus, sonst None
+                if tro_mode == "Zeitraum":
+                    span = st.radio(
+                        "Zeitraum:", ["1 Tag", "1 Woche", "1 Monat", "1 Jahr", "Gesamt"],
+                        horizontal=True, index=4, key="tro_journey_span")
+                    span_days = {"1 Tag": 1, "1 Woche": 7, "1 Monat": 30, "1 Jahr": 365}.get(span)
+                    if span_days is not None:
+                        cutoff = tro['Time'].max() - pd.Timedelta(days=span_days)
+                        trof = tro[tro['Time'] >= cutoff]
+                else:
+                    tro_lo, tro_hi = int(tro['Tro'].min()), int(tro['Tro'].max())
+                    cse, csb = st.columns(2)
+                    von = cse.number_input(
+                        "Von (Trophäen)", min_value=tro_lo, max_value=tro_hi,
+                        value=tro_lo, step=50, key="tro_journey_von")
+                    bis = csb.number_input(
+                        "Bis (Trophäen)", min_value=tro_lo, max_value=tro_hi,
+                        value=tro_hi, step=50, key="tro_journey_bis")
+                    if bis < von:
+                        von, bis = bis, von
+                    trof = tro[(tro['Tro'] >= von) & (tro['Tro'] <= bis)]
+                    range_info = (von, bis)
+
+                if len(trof) >= 2:
+                    ys_t = trof['Tro'].astype(int).tolist()
+                    xs_t = list(range(1, len(ys_t) + 1))
+                    times_t = trof['Time'].dt.strftime("%d.%m.%y %H:%M").tolist()
+                    delta = ys_t[-1] - ys_t[0]
+                    accent_t = "#22C55E" if delta > 0 else ("#F43F5E" if delta < 0 else "#5B8DEF")
+                    fig_tro = go.Figure()
+                    fig_tro.add_trace(go.Scatter(
+                        x=xs_t, y=ys_t, mode="lines", customdata=times_t,
+                        line=dict(color=accent_t, width=3, shape="spline", smoothing=0.5),
+                        fill="tozeroy", fillcolor="rgba(91,141,239,0.10)",
+                        hovertemplate="%{customdata} · %{y} Trophäen<extra></extra>"))
+                    fig_tro.add_trace(go.Scatter(
+                        x=[xs_t[-1]], y=[ys_t[-1]], mode="markers+text",
+                        marker=dict(size=12, color=accent_t, line=dict(color="#0B0E14", width=3)),
+                        text=[f"  {ys_t[-1]}"], textposition="middle right",
+                        textfont=dict(color=accent_t, size=14, family="Inter"), hoverinfo="skip"))
+                    fig_tro = style_fig(fig_tro, height=300, legend=False)
+                    fig_tro.update_xaxes(visible=False, showgrid=False)
+                    fig_tro.update_yaxes(title_text="Trophäen", showgrid=True, gridcolor="#1A2230", zeroline=False)
+                    lo, hi = min(ys_t), max(ys_t)
+                    pad = max(20, int((hi - lo) * 0.15))
+                    fig_tro.update_yaxes(range=[lo - pad, hi + pad])
+                    fig_tro.update_layout(margin=dict(t=14, b=10, l=10, r=52))
+                    st.plotly_chart(fig_tro, use_container_width=True)
+
+                    # Dauer des betrachteten Abschnitts
+                    t_start, t_end = trof['Time'].iloc[0], trof['Time'].iloc[-1]
+                    dur = t_end - t_start
+                    total_min = int(dur.total_seconds() // 60)
+                    d, rem = divmod(total_min, 1440)
+                    h, m = divmod(rem, 60)
+                    if d > 0:    dur_str = f"{d}d {h}h"
+                    elif h > 0:  dur_str = f"{h}h {m}min"
+                    else:        dur_str = f"{m}min"
+
+                    c_t1, c_t2, c_t3, c_t4 = st.columns(4)
+                    c_t1.metric("Start", f"{ys_t[0]}")
+                    c_t2.metric("Ende", f"{ys_t[-1]}")
+                    c_t3.metric("Veränderung", f"{delta:+d}")
+                    c_t4.metric("Dauer", dur_str)
+
+                    if range_info is not None:
+                        von, bis = range_info
+                        st.markdown(
+                            f"<div class='subtle-note'>Von <b>{ys_t[0]}</b> auf <b>{ys_t[-1]}</b> Trophäen "
+                            f"(Bereich {von}–{bis}) – erreicht in <b>{dur_str}</b> über {len(trof)} erfasste Spiele.</div>",
+                            unsafe_allow_html=True)
+                    else:
+                        st.markdown(
+                            f"<div class='subtle-note'>{len(trof)} erfasste Spiele · "
+                            f"{t_start.strftime('%d.%m.%y')} – {t_end.strftime('%d.%m.%y')}.</div>",
+                            unsafe_allow_html=True)
+                else:
+                    st.info("Für den gewählten Zeitraum bzw. Trophäenbereich liegen weniger als 2 erfasste Werte vor.")
             else:
                 st.info("Wird gesammelt: Der Bot schreibt ab jetzt den Trophäenstand pro Spiel mit. Sobald mindestens 2 neue Spiele erfasst sind, erscheint hier die echte Kurve.")
             st.markdown("---")
