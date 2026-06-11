@@ -1309,9 +1309,9 @@ with tab_spieler_glob:
             st.markdown(last_5_html, unsafe_allow_html=True)
 
             st.markdown("---")
-            st.subheader("Karten, gegen die am meisten verloren wurde")
-            st.markdown("<div class='subtle-note'>Welche gegnerischen Karten tauchen in den Niederlagen dieses Spielers am häufigsten auf? (aus dem Global-Archiv)</div>", unsafe_allow_html=True)
-            krypt = {}
+            st.subheader("Karten-Bilanz: gegen welche Karten gewonnen / verloren")
+            st.markdown("<div class='subtle-note'>Welche gegnerischen Karten tauchen in den Siegen bzw. Niederlagen dieses Spielers am häufigsten auf? (aus dem Global-Archiv)</div>", unsafe_allow_html=True)
+            krypt, champs = {}, {}
             if 'Karten_Opp' in p_global.columns:
                 kl = p_global.copy()
                 kl['_me'] = pd.to_numeric(kl['Score_Me'], errors='coerce')
@@ -1321,17 +1321,36 @@ with tab_spieler_glob:
                         c = c.strip()
                         if c:
                             krypt[c] = krypt.get(c, 0) + 1
-            if krypt:
-                top = sorted(krypt.items(), key=lambda x: -x[1])[:8]
+                for s in kl[kl['_me'] > kl['_op']]['Karten_Opp'].astype(str):
+                    for c in s.split(','):
+                        c = c.strip()
+                        if c:
+                            champs[c] = champs.get(c, 0) + 1
+
+            def _render_card_bars(d, color=None):
+                top = sorted(d.items(), key=lambda x: -x[1])[:8]
                 maxc = top[0][1]
                 bars = ""
                 for card, cnt in top:
+                    style = f"width:{cnt/maxc*100:.0f}%" + (f"; background:{color}" if color else "")
                     bars += (f"<div class='p-card-bar'><span class='cn' style='width:130px'>{card}</span>"
-                             f"<span class='ct'><span class='cf' style='width:{cnt/maxc*100:.0f}%'></span></span>"
+                             f"<span class='ct'><span class='cf' style='{style}'></span></span>"
                              f"<span class='cv'>{cnt}&times;</span></div>")
-                st.markdown(f"<div class='tbl-wrap' style='padding:16px 20px;'>{bars}</div>", unsafe_allow_html=True)
-            else:
-                st.info("Wird gesammelt: Sobald der Bot Niederlagen mit Gegner-Decks erfasst, erscheinen hier die häufigsten Karten.")
+                return f"<div class='tbl-wrap' style='padding:16px 20px;'>{bars}</div>"
+
+            col_win, col_loss = st.columns(2)
+            with col_win:
+                st.markdown("**Meiste Siege gegen**")
+                if champs:
+                    st.markdown(_render_card_bars(champs, "#22C55E"), unsafe_allow_html=True)
+                else:
+                    st.info("Wird gesammelt: Sobald der Bot Siege mit Gegner-Decks erfasst, erscheinen hier die häufigsten Karten.")
+            with col_loss:
+                st.markdown("**Meiste Niederlagen gegen**")
+                if krypt:
+                    st.markdown(_render_card_bars(krypt), unsafe_allow_html=True)
+                else:
+                    st.info("Wird gesammelt: Sobald der Bot Niederlagen mit Gegner-Decks erfasst, erscheinen hier die häufigsten Karten.")
 
 # --- TAB 4: AKTIVITÄT & TRENDS ---
 with tab_trends:
