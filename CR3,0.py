@@ -264,6 +264,10 @@ SOLO_TAGS = {
     "finks": "99P0R0YPV"
 }
 
+# Alle Spieler (Crew + Solo) – für Reiter, die jeden getrackten Account auswerten
+# (z. B. die globale Spieler-Analyse). Der Bot erfasst alle diese Tags.
+ALL_TAGS = {**TAGS, **SOLO_TAGS}
+
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1SZQhK7TeBRI6DspxVJWU31ul_PGTXNOoxcOwE6rn2u8/edit?gid=641247476#gid=641247476"
 
 API_KEY = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjhkNjRmMmViLWE4YzgtNGNhOS04MjY1LTk1NDU1NzU0NGU2NyIsImlhdCI6MTc4MDk1MTI0NSwic3ViIjoiZGV2ZWxvcGVyL2MyYjczNjYyLWE2YjYtNzdkMC00N2I4LTM5YjE0MWYyNzcxOCIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyI0NS43OS4yMTguNzkiLCI5Mi4yMDguMjEuMjE4Il0sInR5cGUiOiJjbGllbnQifV19.jttp1dXuI5uzd7DUCb4rGSRrBhTegQwqFF0jzuTNaI3WH-B_5P2Xlc_8zx0Pts_yabI-tsGnEvCVn2xL2SPFkQ"
@@ -1074,11 +1078,11 @@ with tab_spieler_glob:
     st.header("Globale Spieler-Analyse (Deep Dive)")
     st.markdown("<div style='color:#8A93A6; font-size:13px; margin-top:-10px; margin-bottom:20px;'>Nutzt das Archiv (Global_Data) aller weltweit gespielten Matches des Accounts.</div>", unsafe_allow_html=True)
 
-    selected_p = st.selectbox("Spieler auswählen:", list(TAGS.keys()), key="detail_player")
+    selected_p = st.selectbox("Spieler auswählen:", list(ALL_TAGS.keys()), key="detail_player")
 
     # --- Deck-Center (live aus dem Profil) ---
     st.subheader("Aktuelles Deck")
-    render_deck_center(TAGS[selected_p])
+    render_deck_center(ALL_TAGS[selected_p])
     st.markdown("---")
 
     if df_global.empty:
