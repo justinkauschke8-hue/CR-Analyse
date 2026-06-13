@@ -443,6 +443,18 @@ def style_fig(fig, height=300, legend=True, smooth=True):
     return fig
 
 # --- HELFER FUNKTIONEN ---
+# Der Trophäenpfad ("echte Trophäen-Reise") zählt ausschließlich die klassische Ladder
+# (Battlelog type == "PvP", GameMode "Ladder"). Andere Modi – Friendly, Drafts, Events/
+# Trial (z. B. All_Random_Princess) – verändern den Trophäenstand nicht bzw. liefern in
+# startingTrophies nur Platzhalter (1/2) und werden daher konsequent ausgeblendet.
+LADDER_TYPE = "PvP"
+
+def is_ladder(df):
+    """Beschränkt einen Global-DataFrame auf echte Ladder-Spiele (für den Trophäenpfad)."""
+    if 'Type' not in df.columns:
+        return df.iloc[0:0]
+    return df[df['Type'].astype(str).str.strip() == LADDER_TYPE]
+
 def parse_time(id_str):
     if str(id_str).startswith("LEGACY") or str(id_str).startswith("MANUAL"): return pd.NaT
     try: return pd.to_datetime(id_str, format="%Y%m%dT%H%M%S.%fZ")
@@ -1135,7 +1147,7 @@ with tab_spieler_glob:
             st.subheader("Echte Trophäen-Reise")
             st.markdown("<div class='subtle-note'>Tatsächlicher Trophäenstand über die Zeit aus dem Live-Archiv. Wächst, während der Bot läuft.</div>", unsafe_allow_html=True)
             if 'StartTrophies' in p_global.columns:
-                tro = p_global.copy()
+                tro = is_ladder(p_global).copy()
                 tro['Time'] = tro['Time_ID'].apply(parse_time)
                 tro['Tro'] = pd.to_numeric(tro['StartTrophies'], errors='coerce')
                 tro = tro.dropna(subset=['Time', 'Tro']).sort_values('Time')
@@ -1803,7 +1815,7 @@ with tab_flexus:
 
         with col_right:
             st.subheader("Trophäen-Reise (echt, Ladder)")
-            tro_f = f_glob.copy() if (not f_glob.empty and 'StartTrophies' in f_glob.columns) else pd.DataFrame()
+            tro_f = is_ladder(f_glob).copy() if (not f_glob.empty and 'StartTrophies' in f_glob.columns) else pd.DataFrame()
             if not tro_f.empty:
                 tro_f['Time'] = tro_f['Time_ID'].apply(parse_time)
                 tro_f['Tro'] = pd.to_numeric(tro_f['StartTrophies'], errors='coerce')

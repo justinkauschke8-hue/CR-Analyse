@@ -133,11 +133,16 @@ def scan_for_battles():
             game_mode = (b.get('gameMode') or {}).get('name', '')
             princess_hp = "/".join(str(x) for x in (team.get('princessTowersHitPoints') or []))
 
+            # Der Trophäenpfad zählt ausschließlich die klassische Ladder. Nur dort ist
+            # startingTrophies der echte Trophäenstand; Friendly/Draft/Event/Trial-Modi
+            # liefern entweder keinen oder einen Platzhalter -> für diese Spiele leer lassen.
+            start_tro = team.get('startingTrophies', '') if b.get('type', '') == 'PvP' else ''
+
             # 1. Speichern in Global Data (Für alle Spiele) – volles Schema
             if unique_global_id not in known_global_ids:
                 new_global_rows.append([
                     unique_global_id, b_id, name, opp_name, my_cr, op_cr, my_cards_str,
-                    op_cards_str, team.get('trophyChange', ''), team.get('startingTrophies', ''),
+                    op_cards_str, team.get('trophyChange', ''), start_tro,
                     game_mode, b.get('type', ''), team.get('elixirLeaked', ''),
                     princess_hp, team.get('kingTowerHitPoints', '')
                 ])
