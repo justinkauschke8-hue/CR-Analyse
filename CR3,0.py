@@ -182,6 +182,7 @@ h2{ font-size:1.45rem; } h3{ font-size:1.12rem; }
 .dc-name{ font-size:0.7rem; color:var(--text); margin-top:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .dc-lvl{ font-size:0.63rem; color:var(--muted); }
 @media (max-width:1100px){ .deck-grid{ grid-template-columns:repeat(4,1fr); } }
+@media (max-width:640px){ .deck-grid{ grid-template-columns:repeat(3,1fr); } }
 
 /* dezente Notiz */
 .subtle-note{ color:var(--muted); font-size:0.82rem; margin:-6px 0 16px; }
@@ -193,6 +194,62 @@ h2{ font-size:1.45rem; } h3{ font-size:1.12rem; }
 </style>
 """, unsafe_allow_html=True)
 
+# --- MOBILE / RESPONSIVE LAYOUT ---
+# Diese Regeln sorgen für eine saubere Handyansicht. Sie greifen automatisch auf schmalen
+# Bildschirmen (Breakpoint) UND lassen sich per Sidebar-Schalter "📱 Handy-Ansicht" erzwingen
+# (z. B. zum Testen am Desktop oder auf Tablets). Kernidee: alle Streamlit-Spalten stapeln
+# untereinander, Abstände/Schriften werden kompakter, Tabs & Tabellen werden scrollbar.
+MOBILE_RULES = """
+.block-container{ padding-left:0.6rem !important; padding-right:0.6rem !important; padding-top:0.7rem !important; max-width:100% !important; }
+
+/* Streamlit-Spalten untereinander stapeln (volle Breite) */
+[data-testid="stHorizontalBlock"]{ flex-wrap:wrap !important; gap:0.5rem !important; }
+[data-testid="stHorizontalBlock"] > [data-testid="column"]{ flex:1 1 100% !important; width:100% !important; min-width:100% !important; }
+
+/* Hero kompakt & gestapelt */
+.hero{ flex-direction:column; align-items:flex-start; gap:12px; padding:16px 18px; border-radius:14px; }
+.hero h1{ font-size:1.2rem; } .hero p{ font-size:0.78rem; }
+.hero .logo{ width:42px; height:42px; font-size:21px; }
+.hero .pill{ align-self:flex-start; }
+
+/* KPI-Kacheln einspaltig */
+.kpi-grid{ grid-template-columns:1fr !important; gap:10px; margin-bottom:14px; }
+.kpi .value{ font-size:1.45rem; }
+
+/* Deck als 2er-Grid */
+.deck-grid{ grid-template-columns:repeat(2,1fr) !important; }
+
+/* Tabs horizontal scrollbar statt Umbruch */
+.stTabs [data-baseweb="tab-list"]{ overflow-x:auto; flex-wrap:nowrap; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
+.stTabs [data-baseweb="tab-list"]::-webkit-scrollbar{ display:none; }
+.stTabs [data-baseweb="tab"]{ height:40px; padding:0 12px; font-size:0.82rem; white-space:nowrap; }
+
+/* Metric-Karten kompakter */
+[data-testid="stMetric"]{ padding:12px 13px; }
+[data-testid="stMetricValue"]{ font-size:1.3rem !important; }
+
+/* Custom-Tabellen horizontal scrollbar */
+.tbl-wrap{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
+.ctable{ font-size:0.82rem; }
+.ctable thead th, .ctable tbody td{ padding:8px 8px; }
+
+/* Balken/H2H-Namen schmaler, damit Werte passen */
+.h2h-pname, .hbar-name{ width:74px; font-size:0.8rem; }
+.h2h-count, .hbar-val{ width:54px; font-size:0.8rem; }
+
+/* Scoreboard kompakt */
+.sb-row{ padding:10px 4px; }
+.sb-p{ font-size:0.8rem; } .sb-score{ width:88px; font-size:0.95rem; }
+.sb-score .dash{ margin:0 5px; }
+
+/* Spieler-Profilkarten */
+.pcard{ padding:14px 15px; }
+.p-name{ font-size:1.08rem; }
+"""
+
+# Automatischer Breakpoint: greift auf echten Handy-Bildschirmen (≤ 820px).
+st.markdown(f"<style>@media (max-width:820px){{{MOBILE_RULES}}}</style>", unsafe_allow_html=True)
+
 # --- KONFIGURATION ---
 TAGS = {
     "resan": "R902QGYCP",
@@ -202,7 +259,9 @@ TAGS = {
 
 SOLO_TAGS = {
     "Flexus": "QUJC02U2L",
-    "Godwin": "J8LU0JJPV"
+    "Godwin": "J8LU0JJPV",
+    "Rammelaffe420": "2L2J02VG",
+    "finks": "99P0R0YPV"
 }
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1SZQhK7TeBRI6DspxVJWU31ul_PGTXNOoxcOwE6rn2u8/edit?gid=641247476#gid=641247476"
@@ -266,16 +325,20 @@ def render_deck_center(tag):
     st.markdown(
         f"<div class='subtle-note'>Ø Elixier <b style='color:var(--text)'>{avg_elixir:.1f}</b> &middot; "
         f"Lieblingskarte: <b style='color:var(--text)'>{fav.get('name','–')}</b></div>", unsafe_allow_html=True)
-    cols = st.columns(len(deck) if deck else 1)
-    for i, c in enumerate(deck):
-        with cols[i]:
-            icon = (c.get("iconUrls") or {}).get("medium", "")
-            if icon:
-                st.image(icon, use_container_width=True)
-            st.markdown(
-                f"<div style='text-align:center; font-size:0.72rem; color:var(--text); line-height:1.2; margin-top:-4px;'>{c.get('name','')}</div>"
-                f"<div style='text-align:center; font-size:0.66rem; color:var(--muted);'>{c.get('elixirCost','')} Elixier &middot; L{c.get('level','')}</div>",
-                unsafe_allow_html=True)
+    # Responsives HTML-Grid statt fester st.columns – passt sich an die Handyansicht an
+    # (8 Karten am Desktop, 4 auf Tablets, 2 auf dem Handy – siehe .deck-grid CSS).
+    cards_html = ""
+    for c in deck:
+        icon = (c.get("iconUrls") or {}).get("medium", "")
+        img = f"<img src='{icon}' alt=\"{c.get('name','')}\">" if icon else ""
+        cards_html += (
+            "<div class='deck-card'>"
+            f"<div class='dc-elixir'>{c.get('elixirCost','')}</div>"
+            f"{img}"
+            f"<div class='dc-name'>{c.get('name','')}</div>"
+            f"<div class='dc-lvl'>L{c.get('level','')}</div>"
+            "</div>")
+    st.markdown(f"<div class='deck-grid'>{cards_html}</div>", unsafe_allow_html=True)
 
 # --- AUTO-SCANNER (Google Sheets Sync) ---
 def scan_for_battles():
@@ -681,6 +744,15 @@ st.sidebar.markdown("""
   <div><div class='t'>Clash Analyzer</div><div class='s'>Pro Edition</div></div>
 </div>
 """, unsafe_allow_html=True)
+st.sidebar.markdown("---")
+
+# --- HANDY-ANSICHT (manuell erzwingen) ---
+# Auf echten Handys greift das responsive Layout automatisch. Dieser Schalter erzwingt
+# die kompakte Ansicht zusätzlich bei jeder Bildschirmbreite (Desktop-Vorschau / Tablet).
+mobile_view = st.sidebar.toggle("📱 Handy-Ansicht", value=False,
+    help="Erzwingt das kompakte, einspaltige Mobil-Layout – ideal fürs Handy oder zur Vorschau am PC.")
+if mobile_view:
+    st.markdown(f"<style>{MOBILE_RULES}</style>", unsafe_allow_html=True)
 st.sidebar.markdown("---")
 
 # --- LIVE-MODUS (automatische Aktualisierung) ---
